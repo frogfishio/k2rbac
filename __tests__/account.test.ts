@@ -1,6 +1,5 @@
 // __tests__/account.test.ts
 
-import { K2Data } from "@frogfish/k2db";
 import { K2DB, DatabaseConfig } from "@frogfish/k2db/db";
 import { Auth } from "../src/auth";
 import { Ticket } from "../src/types";
@@ -23,7 +22,6 @@ describe("Account Class", () => {
 
   const systemTicket: Ticket = Auth.getSystemTicket(); // Authorization ticket
   let dbInstance: K2DB; // Variable to hold the K2DB instance
-  let dataFacade: K2Data; // Variable to hold the K2Data facade
   let accountInstance: Account; // Variable to hold the Account instance
 
   beforeAll(async () => {
@@ -31,11 +29,8 @@ describe("Account Class", () => {
     dbInstance = new K2DB(config);
     await dbInstance.init();
 
-    // Instantiate K2Data with K2DB instance and "system" as the owner
-    dataFacade = new K2Data(dbInstance, systemTicket.account);
-
     // Instantiate Account class using K2Data and Ticket
-    accountInstance = new Account(dataFacade, systemTicket);
+    accountInstance = new Account(dbInstance, systemTicket);
   });
 
   afterAll(async () => {
@@ -57,7 +52,7 @@ describe("Account Class", () => {
 
     it("should throw an error if account creation fails", async () => {
       jest
-        .spyOn(dataFacade, "create")
+        .spyOn(dbInstance, "create")
         .mockRejectedValueOnce(new Error("Failed to create"));
 
       await expect(
@@ -208,7 +203,7 @@ describe("Account Class", () => {
 
       const result = await accountInstance.removeAccount(newAccount._uuid);
 
-      expect(result).toBe(true);
+      expect(result).toStrictEqual({ deleted: 1 }); // Use toStrictEqual here
 
       await expect(accountInstance.getById(newAccount._uuid)).rejects.toThrow(
         K2Error

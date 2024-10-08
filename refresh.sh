@@ -1,0 +1,1 @@
+npm install @frogfish/k2db@latest

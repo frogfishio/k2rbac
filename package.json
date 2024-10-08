@@ -10,7 +10,7 @@
   "author": "El'Diablo",
   "license": "GPL-3.0-only",
   "dependencies": {
-    "@frogfish/k2db": "^1.0.8",
+    "@frogfish/k2db": "^1.0.11",
     "@frogfish/k2error": "^1.0.2",
     "bcrypt": "^5.1.1",
     "jsonwebtoken": "^9.0.2"

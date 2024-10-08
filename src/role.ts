@@ -1,7 +1,6 @@
 // src/Role.ts
 
-import { K2Data } from "@frogfish/k2db";
-import { BaseDocument } from "@frogfish/k2db/db";
+import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
 import debugLib from "debug";
 import { Ticket } from "./types";
@@ -18,7 +17,7 @@ export class Role {
   private readonly systemRoleId = "system";
   private readonly systemPermission = "system";
 
-  constructor(private db: K2Data, private ticket: Ticket) {}
+  constructor(private db: K2DB, private ticket: Ticket) {}
 
   // Create a new role (not related to the hardcoded system role)
   public async create(
@@ -39,7 +38,11 @@ export class Role {
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
 
-      const result = await this.db.create("_roles", newRole);
+      const result = await this.db.create(
+        "_roles",
+        this.ticket.account,
+        newRole
+      );
       const role = await this.db.findOne("_roles", { _uuid: result.id });
       return role as RoleDocument;
     } catch (error) {
@@ -188,16 +191,8 @@ export class Role {
   // Delete a role by its ID
   public async delete(roleId: string): Promise<boolean> {
     try {
-      const role = await this.getById(roleId);
-      if (!role)
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Role not found",
-          "role_delete_not_found"
-        );
-
-      await this.db.delete("_roles", roleId);
-      return true;
+      const result = await this.db.delete("_roles", roleId);
+      return result.deleted === 1;
     } catch (error) {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,

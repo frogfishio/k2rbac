@@ -1,7 +1,6 @@
 // src/Auth.ts
 
 import jwt from "jsonwebtoken";
-import { K2Data } from "@frogfish/k2db";
 import { User } from "./user"; // Import the User class
 import { Ticket } from "./types"; // Import Ticket interface
 import ms from "ms";
@@ -9,6 +8,7 @@ import crypto from "crypto";
 import debugLib from "debug";
 import { Account, AccountDocument } from "./account"; // Import Account class
 import { Role, RoleDocument } from "./role"; // Import Role class
+import { K2DB } from "@frogfish/k2db/db";
 
 const debug = debugLib("k2:rbac:auth");
 
@@ -34,11 +34,11 @@ interface AuthTokens {
 }
 
 export class Auth {
-  private db: K2Data; // K2Data for database access
+  private db: K2DB; // K2Data for database access
   private account: Account; // Instance of Account class
   private role: Role; // Instance of Role class
 
-  constructor(db: K2Data, ticket: Ticket) {
+  constructor(db: K2DB, ticket: Ticket) {
     this.db = db;
     this.account = new Account(this.db, ticket);
     this.role = new Role(this.db, ticket);

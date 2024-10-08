@@ -1,7 +1,6 @@
 // src/Account.ts
 
-import { K2Data } from "@frogfish/k2db";
-import { BaseDocument } from "@frogfish/k2db/db";
+import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
 
 import { checkPermission } from "./util"; // Importing the permission check utility function
@@ -21,7 +20,7 @@ export class Account {
   private readonly systemRoleId = "system";
   // private ticket: Ticket;
 
-  constructor(private db: K2Data, ticket: Ticket) {
+  constructor(private db: K2DB, private ticket: Ticket) {
     // if (!Auth.verifyTicket(ticket)) {
     //   this.ticket = Auth.getInvalidTicket();
     // } else {
@@ -42,7 +41,11 @@ export class Account {
         },
       };
 
-      const result = await this.db.create("_accounts", newAccount);
+      const result = await this.db.create(
+        "_accounts",
+        this.ticket.account,
+        newAccount
+      );
 
       debug(`>>>> ${JSON.stringify(result)}`);
       const rac = await this.db.get("_accounts", result.id);
@@ -75,30 +78,12 @@ export class Account {
     }
   }
 
-  public async removeAccount(accountId: string): Promise<boolean> {
+  public async removeAccount(accountId: string): Promise<{ deleted: number }> {
     // Check permission before performing the delete operation
     //checkPermission(this.ticket, "account_delete");
 
     try {
-      // Retrieve the account by its ID
-      const account = await this.getById(accountId);
-
-      if (!account) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Account not found",
-          "acc_remove_not_found"
-        );
-      }
-
-      // Set the _deleted flag to true for soft deletion
-      account._deleted = true;
-      account._updated = Date.now(); // Update the timestamp of modification
-
-      // Update the account in the database to reflect the soft delete
-      await this.db.update("_accounts", accountId, account);
-
-      return true;
+      return await this.db.delete("_accounts", accountId);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";

@@ -1,7 +1,6 @@
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { K2Data } from "@frogfish/k2db";
-import { BaseDocument } from "@frogfish/k2db/db";
+import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
 import { Ticket } from "./types";
 import debugLib from "debug";
@@ -24,7 +23,7 @@ export interface Identity {
 
 // User-related operations
 export class User {
-  constructor(private db: K2Data, private ticket: Ticket) {}
+  constructor(private db: K2DB, private ticket: Ticket) {}
 
   // Create a new user with given authentication method and identities
   public async createUser(
@@ -56,7 +55,11 @@ export class User {
       };
 
       // Store user in the database
-      const result = await this.db.create("_users", newUser);
+      const result = await this.db.create(
+        "_users",
+        this.ticket.account,
+        newUser
+      );
 
       const createdUser = await this.db.findOne("_users", { _uuid: result.id });
 
@@ -99,6 +102,14 @@ export class User {
         "identities.type": type,
         "identities.value": value,
       });
+      if (!user) {
+        throw new K2Error(
+          ServiceError.NOT_FOUND,
+          `User not found by identity - ${type}: ${value}`,
+          "user_get_by_identity_empty",
+          undefined
+        );
+      }
       return user as UserDocument;
     } catch (error) {
       throw new K2Error(
@@ -334,10 +345,14 @@ export class User {
           "user_clear_otp_user_not_found"
         );
 
-      user.otp = undefined;
-      user.otpExpiresAt = undefined;
+      delete user.otp;
+      delete user.otpExpiresAt;
+      // user.otp = undefined;
+      // user.otpExpiresAt = undefined;
 
-      await this.db.update("_users", userId, user);
+      console.log(`>>>>>>>>>>>>> ${JSON.stringify(user)}`);
+
+      await this.db.update("_users", userId, user, true);
       return true;
     } catch (error) {
       throw new K2Error(

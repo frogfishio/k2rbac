@@ -1,6 +1,5 @@
 // __tests__/user.test.ts
 
-import { K2Data } from "@frogfish/k2db";
 import { K2DB, DatabaseConfig } from "@frogfish/k2db/db";
 import { Auth } from "../src/auth";
 import { Ticket } from "../src/types";
@@ -23,7 +22,6 @@ describe("User Class", () => {
 
   const systemTicket: Ticket = Auth.getSystemTicket(); // Authorization ticket
   let dbInstance: K2DB; // Variable to hold the K2DB instance
-  let dataFacade: K2Data; // Variable to hold the K2Data facade
   let userInstance: User; // Variable to hold the User instance
 
   beforeAll(async () => {
@@ -31,11 +29,8 @@ describe("User Class", () => {
     dbInstance = new K2DB(config);
     await dbInstance.init();
 
-    // Instantiate K2Data with K2DB instance and "system" as the owner
-    dataFacade = new K2Data(dbInstance, systemTicket.account);
-
     // Instantiate User class using K2Data and Ticket
-    userInstance = new User(dataFacade, systemTicket);
+    userInstance = new User(dbInstance, systemTicket);
   });
 
   afterAll(async () => {
@@ -63,7 +58,7 @@ describe("User Class", () => {
 
     it("should throw an error if user creation fails", async () => {
       jest
-        .spyOn(dataFacade, "create")
+        .spyOn(dbInstance, "create")
         .mockRejectedValueOnce(new Error("Failed to create"));
 
       await expect(

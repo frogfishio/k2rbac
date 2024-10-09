@@ -1,5 +1,3 @@
-// __tests__/role.test.ts
-
 import { K2DB, DatabaseConfig } from "@frogfish/k2db/db";
 import { Auth } from "../src/auth";
 import { Ticket } from "../src/types";
@@ -39,32 +37,74 @@ describe("Role Class", () => {
     await dbInstance.release(); // Release the K2DB connection
   });
 
+  beforeEach(async () => {
+    // Optionally drop the entire roles collection or delete specific roles by code
+    await dbInstance.deleteAll("_roles", {
+      code: { $in: ["admin_code", "user_code"] },
+    });
+  });
+
   describe("create() method", () => {
     it("should create a new role successfully", async () => {
       const roleName = "admin";
       const permissions = ["read", "write"];
+      const code = "admin_code";
 
-      const newRole = await roleInstance.create(roleName, permissions);
+      const newRole = await roleInstance.create(roleName, permissions, code);
 
       expect(newRole).toBeDefined();
       expect(newRole.name).toBe(roleName);
       expect(newRole.permissions).toEqual(permissions);
+      expect(newRole.code).toBe(code);
     });
 
-    it("should throw an error if role creation fails", async () => {
-      jest
-        .spyOn(dbInstance, "create")
-        .mockRejectedValueOnce(new Error("Failed to create"));
+    it("should throw an error if role code is not unique", async () => {
+      const roleName = "admin";
+      const permissions = ["read", "write"];
+      const code = "admin_code";
 
-      await expect(roleInstance.create("invalid-role")).rejects.toThrow(
+      // Create the first role
+      await roleInstance.create(roleName, permissions, code);
+
+      // Attempt to create another role with the same code
+      await expect(
+        roleInstance.create("another_role", ["execute"], code)
+      ).rejects.toThrow(K2Error);
+    });
+
+    it("should throw a validation error for invalid permissions", async () => {
+      await expect(
+        roleInstance.create("admin", ["invalid_permission!"])
+      ).rejects.toThrow(K2Error);
+    });
+
+    // New negative tests
+    it("should throw a validation error if role name is empty", async () => {
+      const roleName = ""; // Empty name
+      const permissions = ["read", "write"];
+      await expect(roleInstance.create(roleName, permissions)).rejects.toThrow(
         K2Error
       );
+    });
 
-      jest.restoreAllMocks();
+    it("should throw a validation error if permissions array is empty", async () => {
+      const roleName = "admin";
+      const permissions: string[] = []; // Empty permissions array
+      await expect(roleInstance.create(roleName, permissions)).rejects.toThrow(
+        K2Error
+      );
+    });
+
+    it("should throw a validation error if permissions array contains duplicates", async () => {
+      const roleName = "admin";
+      const permissions = ["read", "write", "read"]; // Duplicate 'read' permission
+      await expect(roleInstance.create(roleName, permissions)).rejects.toThrow(
+        K2Error
+      );
     });
   });
 
-  describe("getById() method", () => {
+  describe("get() method", () => {
     it("should retrieve a role by its ID", async () => {
       const roleName = "admin";
       const permissions = ["read", "write"];
@@ -73,14 +113,25 @@ describe("Role Class", () => {
       const newRole = await roleInstance.create(roleName, permissions);
 
       // Then retrieve the role by its ID
-      const retrievedRole = await roleInstance.getById(newRole._uuid);
+      const retrievedRole = await roleInstance.get(newRole._uuid);
 
       expect(retrievedRole).toBeDefined();
       expect(retrievedRole?.name).toBe(roleName);
     });
 
     it("should throw an error if role ID does not exist", async () => {
-      await expect(roleInstance.getById("invalid-id")).rejects.toThrow(K2Error);
+      await expect(roleInstance.get("invalid-id")).rejects.toThrow(K2Error);
+    });
+
+    // New negative tests
+    it("should throw an error if role ID format is invalid", async () => {
+      const invalidId = "invalid-id-format";
+      await expect(roleInstance.get(invalidId)).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if role ID is null", async () => {
+      const invalidId = null;
+      await expect(roleInstance.get(invalidId as any)).rejects.toThrow(K2Error);
     });
   });
 
@@ -105,89 +156,96 @@ describe("Role Class", () => {
         K2Error
       );
     });
+
+    // New negative tests
+    it("should throw an error if role code is null", async () => {
+      const invalidCode = null;
+      await expect(roleInstance.getByCode(invalidCode as any)).rejects.toThrow(
+        K2Error
+      );
+    });
+
+    it("should throw an error if role code is empty string", async () => {
+      const invalidCode = "";
+      await expect(roleInstance.getByCode(invalidCode)).rejects.toThrow(
+        K2Error
+      );
+    });
   });
 
-  describe("updateRoleName() method", () => {
-    it("should update the role name successfully", async () => {
+  describe("update() method", () => {
+    it("should update the role name and permissions successfully", async () => {
       const roleName = "admin";
       const permissions = ["read", "write"];
 
       // Create a role
       const newRole = await roleInstance.create(roleName, permissions);
 
-      // Update the role name
-      const updated = await roleInstance.updateRoleName(
-        newRole._uuid,
-        "super-admin"
-      );
+      // Update the role data
+      const updated = await roleInstance.update(newRole._uuid, {
+        name: "super-admin",
+        permissions: ["execute"],
+      });
 
-      expect(updated).toBe(true);
+      expect(updated.updated).toBe(1);
 
-      // Retrieve and verify the updated name
-      const updatedRole = await roleInstance.getById(newRole._uuid);
+      // Retrieve and verify the updated role
+      const updatedRole = await roleInstance.get(newRole._uuid);
       expect(updatedRole?.name).toBe("super-admin");
+      expect(updatedRole?.permissions).toEqual(["execute"]);
     });
 
     it("should throw an error if role does not exist", async () => {
       await expect(
-        roleInstance.updateRoleName("invalid-id", "new-name")
+        roleInstance.update("invalid-id", { name: "new-name" })
       ).rejects.toThrow(K2Error);
     });
-  });
 
-  describe("addPermissions() method", () => {
-    it("should add permissions to a role successfully", async () => {
+    // New negative tests
+    it("should throw a validation error if updating with empty name", async () => {
       const roleName = "admin";
-      const permissions = ["read"];
+      const permissions = ["read", "write"];
 
       // Create a role
       const newRole = await roleInstance.create(roleName, permissions);
 
-      // Add new permissions
-      const updated = await roleInstance.addPermissions(newRole._uuid, [
-        "write",
-        "execute",
-      ]);
-
-      expect(updated).toBe(true);
-
-      // Retrieve and verify the updated permissions
-      const updatedRole = await roleInstance.getById(newRole._uuid);
-      expect(updatedRole?.permissions).toEqual(
-        expect.arrayContaining(["read", "write", "execute"])
-      );
-    });
-
-    it("should throw an error if role does not exist", async () => {
+      // Attempt to update with empty name
       await expect(
-        roleInstance.addPermissions("invalid-id", ["write"])
+        roleInstance.update(newRole._uuid, { name: "" })
       ).rejects.toThrow(K2Error);
     });
-  });
 
-  describe("removePermissions() method", () => {
-    it("should remove permissions from a role successfully", async () => {
+    it("should throw a validation error if updating with duplicate permissions", async () => {
       const roleName = "admin";
-      const permissions = ["read", "write", "execute"];
+      const permissions = ["read", "write"];
 
       // Create a role
       const newRole = await roleInstance.create(roleName, permissions);
 
-      // Remove a permission
-      const updated = await roleInstance.removePermissions(newRole._uuid, [
-        "write",
-      ]);
-
-      expect(updated).toBe(true);
-
-      // Retrieve and verify the updated permissions
-      const updatedRole = await roleInstance.getById(newRole._uuid);
-      expect(updatedRole?.permissions).not.toContain("write");
+      // Attempt to update with duplicate permissions
+      await expect(
+        roleInstance.update(newRole._uuid, {
+          permissions: ["read", "write", "read"],
+        })
+      ).rejects.toThrow(K2Error);
     });
 
-    it("should throw an error if role does not exist", async () => {
+    it("should throw an error if updating code to a code that already exists", async () => {
+      const roleName1 = "admin";
+      const permissions1 = ["read", "write"];
+      const code1 = "admin_code";
+
+      const roleName2 = "user";
+      const permissions2 = ["read"];
+      const code2 = "user_code";
+
+      // Create two roles
+      const role1 = await roleInstance.create(roleName1, permissions1, code1);
+      const role2 = await roleInstance.create(roleName2, permissions2, code2);
+
+      // Attempt to update role2's code to code1
       await expect(
-        roleInstance.removePermissions("invalid-id", ["write"])
+        roleInstance.update(role2._uuid, { code: code1 })
       ).rejects.toThrow(K2Error);
     });
   });
@@ -203,62 +261,63 @@ describe("Role Class", () => {
       // Delete the role
       const deleted = await roleInstance.delete(newRole._uuid);
 
-      expect(deleted).toBe(true);
+      expect(deleted.deleted).toBe(1);
 
       // Verify the role is deleted
-      await expect(roleInstance.getById(newRole._uuid)).rejects.toThrow(
-        K2Error
-      );
+      await expect(roleInstance.get(newRole._uuid)).rejects.toThrow(K2Error);
     });
 
     it("should throw an error if role does not exist", async () => {
       await expect(roleInstance.delete("invalid-id")).rejects.toThrow(K2Error);
     });
-  });
 
-  describe("hasPermission() method", () => {
-    it("should return true if the role has the permission", async () => {
-      const roleName = "admin";
-      const permissions = ["read", "write"];
-
-      // Create a role
-      const newRole = await roleInstance.create(roleName, permissions);
-
-      // Check for a permission
-      const hasPermission = await roleInstance.hasPermission(
-        newRole._uuid,
-        "write"
-      );
-
-      expect(hasPermission).toBe(true);
+    // New negative tests
+    it("should throw an error if role ID format is invalid", async () => {
+      const invalidId = "invalid-id-format";
+      await expect(roleInstance.delete(invalidId)).rejects.toThrow(K2Error);
     });
 
-    it("should return false if the role does not have the permission", async () => {
-      const roleName = "admin";
-      const permissions = ["read"];
-
-      // Create a role
-      const newRole = await roleInstance.create(roleName, permissions);
-
-      // Check for a permission
-      const hasPermission = await roleInstance.hasPermission(
-        newRole._uuid,
-        "write"
+    it("should throw an error if role ID is null", async () => {
+      const invalidId = null;
+      await expect(roleInstance.delete(invalidId as any)).rejects.toThrow(
+        K2Error
       );
-
-      expect(hasPermission).toBe(false);
     });
   });
 
-  describe("isSystem() method", () => {
-    it("should return true if the role is the system role", () => {
-      const isSystem = roleInstance.isSystem("system");
-      expect(isSystem).toBe(true);
+  // New describe block for find() method
+  describe("find() method", () => {
+    it("should find roles based on criteria", async () => {
+      // Create roles
+      const role1 = await roleInstance.create(
+        "admin",
+        ["read", "write"],
+        "admin_code"
+      );
+      const role2 = await roleInstance.create("user", ["read"], "user_code");
+
+      // Find roles with name 'admin'
+      const roles = await roleInstance.find({ name: "admin" });
+      expect(roles).toHaveLength(1);
+      expect(roles[0].name).toBe("admin");
     });
 
-    it("should return false if the role is not the system role", () => {
-      const isSystem = roleInstance.isSystem("admin");
-      expect(isSystem).toBe(false);
+    it("should return empty array if no roles match criteria", async () => {
+      const roles = await roleInstance.find({ name: "nonexistent" });
+      expect(roles).toHaveLength(0);
+    });
+
+    it("should throw an error if criteria is invalid", async () => {
+      // Passing invalid criteria (e.g., null)
+      await expect(roleInstance.find(null as any)).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if limit is negative", async () => {
+      await expect(roleInstance.find({}, -1)).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if skip is negative", async () => {
+      await expect(roleInstance.find({}, 10, -1)).rejects.toThrow(K2Error);
     });
   });
 });

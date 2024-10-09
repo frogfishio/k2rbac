@@ -171,7 +171,7 @@ export class Auth {
     const permissionsSet = new Set<string>();
 
     for (const roleId of roles) {
-      const roleDoc: RoleDocument | null = await this.role.getById(roleId);
+      const roleDoc: RoleDocument | null = await this.role.get(roleId);
       if (roleDoc) {
         roleDoc.permissions.forEach((permission) =>
           permissionsSet.add(permission)

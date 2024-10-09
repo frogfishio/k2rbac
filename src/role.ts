@@ -1,12 +1,35 @@
-// src/Role.ts
-
 import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
 import debugLib from "debug";
 import { Ticket } from "./types";
+import { z } from "zod";
+
 const debug = debugLib("k2:rbac:role");
 
-// Define the structure of a Role document
+// Define regex for permission format: alphanumeric, lowercase, can contain underscores, but can't start with a number
+const permissionRegex = /^[a-z][a-z0-9_]*$/;
+
+// Define the structure of a Role document using Zod for validation
+const roleSchema = z.object({
+  name: z.string().min(1, { message: "Role name cannot be empty" }),
+  code: z.string().optional(),
+  permissions: z
+    .array(
+      z
+        .string()
+        .min(1, { message: "Permission cannot be empty" })
+        .regex(permissionRegex, {
+          message:
+            "Invalid permission format. Must be lowercase, alphanumeric, and can't start with a number.",
+        })
+    )
+    .nonempty({ message: "Permissions array cannot be empty" })
+    .refine((permissions) => new Set(permissions).size === permissions.length, {
+      message: "Duplicate permissions are not allowed",
+    }),
+});
+
+// Define the structure of a Role document (Zod will validate it)
 export interface RoleDocument extends BaseDocument {
   name: string;
   code?: string;
@@ -29,11 +52,22 @@ export class Role {
       const newRole: Partial<RoleDocument> = {
         name,
         permissions,
+        code,
       };
 
+      // Validate the role document using Zod before saving
+      roleSchema.parse(newRole);
+
+      // Perform the async check for unique code
       if (code) {
-        // TODO: check for code uniqueness
-        newRole.code = code;
+        const isCodeUnique = await this.isCodeUnique(code);
+        if (!isCodeUnique) {
+          throw new K2Error(
+            ServiceError.ALREADY_EXISTS,
+            `Role with code "${code}" already exists`,
+            "code_uniqueness_error"
+          );
+        }
       }
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
@@ -46,30 +80,38 @@ export class Role {
       const role = await this.db.findOne("_roles", { _uuid: result.id });
       return role as RoleDocument;
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new K2Error(
+          ServiceError.VALIDATION_ERROR,
+          `Validation failed: ${error.errors
+            .map((err) => err.message)
+            .join(", ")}`,
+          "validation_error"
+        );
+      }
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to create role - ${
           error instanceof Error ? error.message : error
         }`,
-        "role_create_error",
+        "ehrkhmaxk92kfyjv7ksl",
         error instanceof Error ? error : undefined
       );
     }
   }
 
-  // Retrieve a role by its unique ID
-  public async getById(roleId: string): Promise<RoleDocument | null> {
-    try {
-      const role = await this.db.get("_roles", roleId);
-      return role as RoleDocument;
-    } catch (error) {
-      throw new K2Error(
-        ServiceError.NOT_FOUND,
-        `Role not found - ${error instanceof Error ? error.message : error}`,
-        "role_get_by_id_error",
-        error instanceof Error ? error : undefined
-      );
-    }
+  // Helper method to check if the role code is unique
+  private async isCodeUnique(code: string): Promise<boolean> {
+    const existingRole = await this.db.findOne("_roles", { code });
+    return !existingRole;
+  }
+
+  async get(roleId: string): Promise<RoleDocument> {
+    const role: RoleDocument = (await this.db.get(
+      "_roles",
+      roleId
+    )) as RoleDocument;
+    return role;
   }
 
   // Retrieve a role by its unique code (mnemonic), used
@@ -81,7 +123,7 @@ export class Role {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           `Role ${roleCode} not found`,
-          "role_get_by_code_error_nil",
+          "85okz2s8ctfvxh9i50jm",
           undefined
         );
       }
@@ -90,147 +132,66 @@ export class Role {
       throw new K2Error(
         ServiceError.NOT_FOUND,
         `Role not found - ${error instanceof Error ? error.message : error}`,
-        "role_get_by_code_error",
+        "j88wfv5j7euo1rk91m45",
         error instanceof Error ? error : undefined
       );
     }
   }
 
-  // Update a role's name
-  public async updateRoleName(
+  // Update a role's data
+  public async update(
     roleId: string,
-    newName: string
-  ): Promise<boolean> {
+    data: Partial<RoleDocument>
+  ): Promise<{ updated: number }> {
     try {
-      const role = await this.getById(roleId);
-      if (!role)
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Role not found",
-          "role_update_name_not_found"
-        );
+      // Validate the role data using Zod before updating
+      roleSchema.partial().parse(data); // Use partial schema for partial updates
 
-      role.name = newName;
-      await this.db.update("_roles", roleId, role);
-      return true;
+      // Check if the code is being updated and if so, ensure it's unique
+      if (data.code) {
+        const isCodeUnique = await this.isCodeUnique(data.code);
+        if (!isCodeUnique) {
+          throw new K2Error(
+            ServiceError.ALREADY_EXISTS,
+            `Role with code "${data.code}" already exists`,
+            "code_uniqueness_error"
+          );
+        }
+      }
+
+      return await this.db.update("_roles", roleId, data);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new K2Error(
+          ServiceError.VALIDATION_ERROR,
+          `Validation failed: ${error.errors
+            .map((err) => err.message)
+            .join(", ")}`,
+          "validation_error"
+        );
+      }
       throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to update role name - ${
+        ServiceError.SYSTEM_ERROR,
+        `Failed to update role - ${
           error instanceof Error ? error.message : error
         }`,
-        "role_update_name_error",
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  // Add permissions to a role
-  public async addPermissions(
-    roleId: string,
-    permissions: string[]
-  ): Promise<boolean> {
-    try {
-      const role = await this.getById(roleId);
-      if (!role)
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Role not found",
-          "role_add_permissions_not_found"
-        );
-
-      // Avoid duplicates by adding only unique permissions
-      role.permissions = Array.from(
-        new Set([...role.permissions, ...permissions])
-      );
-      await this.db.update("_roles", roleId, role);
-      return true;
-    } catch (error) {
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to add permissions to role - ${
-          error instanceof Error ? error.message : error
-        }`,
-        "role_add_permissions_error",
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  // Remove permissions from a role
-  public async removePermissions(
-    roleId: string,
-    permissionsToRemove: string[]
-  ): Promise<boolean> {
-    try {
-      const role = await this.getById(roleId);
-      if (!role)
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Role not found",
-          "role_remove_permissions_not_found"
-        );
-
-      role.permissions = role.permissions.filter(
-        (permission) => !permissionsToRemove.includes(permission)
-      );
-      await this.db.update("_roles", roleId, role);
-      return true;
-    } catch (error) {
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to remove permissions from role - ${
-          error instanceof Error ? error.message : error
-        }`,
-        "role_remove_permissions_error",
+        "0wmno8pfpzt6z318xvtj",
         error instanceof Error ? error : undefined
       );
     }
   }
 
   // Delete a role by its ID
-  public async delete(roleId: string): Promise<boolean> {
+  public async delete(roleId: string): Promise<{ deleted: number }> {
     try {
-      const result = await this.db.delete("_roles", roleId);
-      return result.deleted === 1;
+      return await this.db.delete("_roles", roleId);
     } catch (error) {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to delete role - ${
           error instanceof Error ? error.message : error
         }`,
-        "role_delete_error",
-        error instanceof Error ? error : undefined
-      );
-    }
-  }
-
-  // Check if a given role is the system role
-  public isSystem(roleId: string): boolean {
-    return roleId === this.systemRoleId;
-  }
-
-  // Check if a role has a specific permission
-  public async hasPermission(
-    roleId: string,
-    permission: string
-  ): Promise<boolean> {
-    try {
-      const role = await this.getById(roleId);
-      if (!role)
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Role not found",
-          "role_has_permission_not_found"
-        );
-      return role.permissions.includes(permission);
-    } catch (error) {
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to check role permission - ${
-          error instanceof Error ? error.message : error
-        }`,
-        "role_has_permission_error",
+        "p4oprd6g3cq798w46qq1",
         error instanceof Error ? error : undefined
       );
     }
@@ -262,7 +223,7 @@ export class Role {
         `Failed to find roles - ${
           error instanceof Error ? error.message : error
         }`,
-        "role_find_error",
+        "miiwrp553251te51e40p",
         error instanceof Error ? error : undefined
       );
     }

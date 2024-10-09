@@ -3,7 +3,7 @@
 import { K2DB, DatabaseConfig } from "@frogfish/k2db/db";
 import { Auth } from "../src/auth";
 import { Ticket } from "../src/types";
-import { User, UserDocument } from "../src/user";
+import { User, UserDocument, IdentityType } from "../src/user";
 import { K2Error } from "@frogfish/k2error"; // Import error classes
 
 describe("User Class", () => {
@@ -39,193 +39,279 @@ describe("User Class", () => {
     await dbInstance.release(); // Release the K2DB connection
   });
 
+  beforeEach(async () => {
+    // Optionally drop the entire users collection
+    await dbInstance.deleteAll("_users", {});
+  });
+
   describe("createUser() method", () => {
     it("should create a new user successfully", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+      const email = "test@example.com";
+      const password = "password123";
 
       const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
+        IdentityType.EMAIL,
+        email,
+        password
       );
 
       expect(newUser).toBeDefined();
-      expect(newUser.identifiedBy).toBeDefined(); // This should be hashed
-      expect(newUser.identities).toEqual(expect.arrayContaining(identities));
+      expect(newUser.id).toBeDefined();
     });
 
-    it("should throw an error if user creation fails", async () => {
-      jest
-        .spyOn(dbInstance, "create")
-        .mockRejectedValueOnce(new Error("Failed to create"));
+    it("should throw an error if email is invalid", async () => {
+      await expect(
+        userInstance.createUser(IdentityType.EMAIL, "invalid-email", "password")
+      ).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if email is already registered", async () => {
+      const email = "duplicate@example.com";
+      const password = "password123";
+
+      // Create user
+      await userInstance.createUser(IdentityType.EMAIL, email, password);
+
+      // Try creating again with the same email
+      await expect(
+        userInstance.createUser(IdentityType.EMAIL, email, password)
+      ).rejects.toThrow(K2Error);
+    });
+
+    // New negative tests
+    it("should throw an error if password is missing", async () => {
+      const email = "nopassword@example.com";
+      await expect(
+        userInstance.createUser(IdentityType.EMAIL, email, "")
+      ).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if identity type is unsupported", async () => {
+      const email = "unsupported@example.com";
+      const password = "password123";
+      const invalidType = "unsupported_type" as IdentityType;
 
       await expect(
-        userInstance.createUser("invalid-password", "bcrypt", [])
+        userInstance.createUser(invalidType, email, password)
       ).rejects.toThrow(K2Error);
+    });
 
-      jest.restoreAllMocks();
+    it("should throw an error if identifier is missing", async () => {
+      const password = "password123";
+      await expect(
+        userInstance.createUser(IdentityType.EMAIL, "", password)
+      ).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if password is too weak", async () => {
+      const email = "weakpassword@example.com";
+      const weakPassword = "123"; // Assuming password strength validation
+      await expect(
+        userInstance.createUser(IdentityType.EMAIL, email, weakPassword)
+      ).rejects.toThrow(K2Error);
     });
   });
 
-  describe("getById() method", () => {
-    it("should retrieve a user by their ID", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+  describe("get() method", () => {
+    it("should retrieve a user by ID", async () => {
+      const email = "user1@example.com";
+      const password = "password123";
 
+      // First, create a user
       const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
+        IdentityType.EMAIL,
+        email,
+        password
       );
 
-      const retrievedUser = await userInstance.getById(newUser._uuid);
+      // Then retrieve the user by its ID
+      const retrievedUser = await userInstance.get(newUser.id);
 
       expect(retrievedUser).toBeDefined();
-      expect(retrievedUser?.identities).toEqual(
-        expect.arrayContaining(identities)
-      );
+      expect(retrievedUser.identities[0].identifier).toBe(email);
     });
 
     it("should throw an error if user ID does not exist", async () => {
-      await expect(userInstance.getById("invalid-id")).rejects.toThrow(K2Error);
+      await expect(userInstance.get("invalid-id")).rejects.toThrow(K2Error);
+    });
+
+    // New negative tests
+    it("should throw an error if user ID format is invalid", async () => {
+      const invalidId = "invalid-id-format";
+      await expect(userInstance.get(invalidId)).rejects.toThrow(K2Error);
+    });
+
+    it("should throw an error if user ID is null", async () => {
+      const invalidId = null;
+      await expect(userInstance.get(invalidId as any)).rejects.toThrow(K2Error);
     });
   });
 
-  describe("getByIdentity() method", () => {
-    it("should retrieve a user by their identity", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+  describe("findByIdentifier() method", () => {
+    it("should retrieve a user by identifier", async () => {
+      const email = "findme@example.com";
+      const password = "password123";
 
-      await userInstance.createUser(identifiedBy, method, identities);
+      // Create a user with an email
+      await userInstance.createUser(IdentityType.EMAIL, email, password);
 
-      const retrievedUser = await userInstance.getByIdentity(
-        "email",
-        "test@example.com"
+      // Retrieve the user by email
+      const foundUser = await userInstance.findByIdentifier(
+        IdentityType.EMAIL,
+        email
       );
 
-      expect(retrievedUser).toBeDefined();
-      expect(retrievedUser?.identities[0].value).toBe("test@example.com");
+      expect(foundUser).toBeDefined();
+      expect(foundUser?.identities[0].identifier).toBe(email);
     });
 
-    it("should throw an error if the user identity does not exist", async () => {
+    it("should return null if the identifier does not exist", async () => {
+      const foundUser = await userInstance.findByIdentifier(
+        IdentityType.EMAIL,
+        "nonexistent@example.com"
+      );
+
+      expect(foundUser).toBeNull();
+    });
+
+    // New negative tests
+    it("should return null if identifier is null", async () => {
+      const foundUser = await userInstance.findByIdentifier(
+        IdentityType.EMAIL,
+        null as any
+      );
+
+      expect(foundUser).toBeNull();
+    });
+
+    it("should throw an error if identity type is invalid", async () => {
+      const invalidType = "invalid_type" as IdentityType;
       await expect(
-        userInstance.getByIdentity("email", "nonexistent@example.com")
+        userInstance.findByIdentifier(invalidType, "test@example.com")
       ).rejects.toThrow(K2Error);
+    });
+
+    it("should return null if identifier is empty string", async () => {
+      const foundUser = await userInstance.findByIdentifier(
+        IdentityType.EMAIL,
+        ""
+      );
+
+      expect(foundUser).toBeNull();
     });
   });
 
   describe("authenticate() method", () => {
-    it("should authenticate a user successfully", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+    it("should authenticate a user with valid credentials", async () => {
+      const email = "authuser@example.com";
+      const password = "securePassword";
 
-      const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
+      // Create a user
+      await userInstance.createUser(IdentityType.EMAIL, email, password);
+
+      // Authenticate with correct credentials
+      const authenticatedUser = await userInstance.authenticate(
+        IdentityType.EMAIL,
+        email,
+        password
       );
 
-      const isAuthenticated = await userInstance.authenticate(
-        identifiedBy,
-        method,
-        newUser._uuid
-      );
-
-      expect(isAuthenticated).toBe(true);
+      expect(authenticatedUser).toBeDefined();
+      expect(authenticatedUser.identities[0].identifier).toBe(email);
     });
 
-    it("should return false if authentication fails", async () => {
-      const identifiedBy = "wrongPassword";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+    it("should throw an error for invalid credentials", async () => {
+      const email = "wrongauth@example.com";
+      const password = "rightPassword";
+      const wrongPassword = "wrongPassword";
 
-      const newUser = await userInstance.createUser(
-        "password123",
-        method,
-        identities
-      );
+      // Create a user
+      await userInstance.createUser(IdentityType.EMAIL, email, password);
 
-      const isAuthenticated = await userInstance.authenticate(
-        identifiedBy,
-        method,
-        newUser._uuid
-      );
-
-      expect(isAuthenticated).toBe(false);
+      // Attempt authentication with incorrect password
+      await expect(
+        userInstance.authenticate(IdentityType.EMAIL, email, wrongPassword)
+      ).rejects.toThrow(K2Error);
     });
-  });
 
-  describe("createOtp() method", () => {
-    it("should generate and store OTP for the user", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
-
-      const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
-      );
-
-      const otp = await userInstance.createOtp(newUser._uuid);
-
-      expect(otp).toBeDefined();
-
-      const updatedUser = await userInstance.getById(newUser._uuid);
-
-      expect(updatedUser?.otp).toBe(otp);
-      expect(updatedUser?.otpExpiresAt).toBeGreaterThan(Date.now());
+    it("should throw an error if the user is not found", async () => {
+      await expect(
+        userInstance.authenticate(
+          IdentityType.EMAIL,
+          "nonexistent@example.com",
+          "password"
+        )
+      ).rejects.toThrow(K2Error);
     });
-  });
 
-  describe("setRestrictedMode() method", () => {
-    it("should set restricted mode for a user", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+    // New negative tests
+    it("should throw an error if identity type is invalid", async () => {
+      const email = "invalidtype@example.com";
+      const password = "password123";
+      const invalidType = "invalid_type" as IdentityType;
 
-      const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
-      );
+      await expect(
+        userInstance.authenticate(invalidType, email, password)
+      ).rejects.toThrow(K2Error);
+    });
 
-      const result = await userInstance.setRestrictedMode(newUser._uuid, true);
+    it("should throw an error if identifier is missing", async () => {
+      const password = "password123";
+      await expect(
+        userInstance.authenticate(IdentityType.EMAIL, "", password)
+      ).rejects.toThrow(K2Error);
+    });
 
-      expect(result).toBe(true);
+    it("should throw an error if identifiedBy (password) is missing", async () => {
+      const email = "missingpassword@example.com";
+      const password = "password123";
 
-      const updatedUser = await userInstance.getById(newUser._uuid);
+      // Create a user
+      await userInstance.createUser(IdentityType.EMAIL, email, password);
 
-      expect(updatedUser?.restrictedMode).toBe(true);
+      // Attempt authentication without password
+      await expect(
+        userInstance.authenticate(IdentityType.EMAIL, email, "")
+      ).rejects.toThrow(K2Error);
     });
   });
 
-  describe("clearOtp() method", () => {
-    it("should clear the OTP for a user", async () => {
-      const identifiedBy = "password123";
-      const method = "bcrypt";
-      const identities = [{ type: "email", value: "test@example.com" }];
+  describe("delete() method", () => {
+    it("should delete a user successfully", async () => {
+      const email = "deletethis@example.com";
+      const password = "password123";
 
+      // Create a user
       const newUser = await userInstance.createUser(
-        identifiedBy,
-        method,
-        identities
+        IdentityType.EMAIL,
+        email,
+        password
       );
 
-      await userInstance.createOtp(newUser._uuid); // Generate OTP
+      // Delete the user
+      const deletionResult = await userInstance.delete(newUser.id);
 
-      const cleared = await userInstance.clearOtp(newUser._uuid);
-      expect(cleared).toBe(true);
+      expect(deletionResult.deleted).toBe(1);
 
-      const updatedUser = await userInstance.getById(newUser._uuid);
+      // Verify the user is deleted
+      await expect(userInstance.get(newUser.id)).rejects.toThrow(K2Error);
+    });
 
-      expect(updatedUser?.otp).toBeUndefined();
-      expect(updatedUser?.otpExpiresAt).toBeUndefined();
+    it("should throw an error if the user does not exist", async () => {
+      await expect(userInstance.delete("invalid-id")).rejects.toThrow(K2Error);
+    });
+
+    // New negative tests
+    it("should throw an error if user ID is null", async () => {
+      const invalidId = null;
+      await expect(userInstance.delete(invalidId as any)).rejects.toThrow(
+        K2Error
+      );
+    });
+
+    it("should throw an error if user ID format is invalid", async () => {
+      const invalidId = "invalid-id-format";
+      await expect(userInstance.delete(invalidId)).rejects.toThrow(K2Error);
     });
   });
 });

@@ -39,4 +39,10 @@ export class RBAC {
   removeRolesFromUser(userId: string, roles: Array<string>) {}
   updateUser(userId: string, data: any) {}
   deleteUser(userId: string) {}
+
+  //--- account
+  accounts(filter: any) {}
+  createAccount(userId: string, roleIds: Array<string>) {}
+  updateRole(roleId: string, permissions: Array<string>) {}
+  deleteRole(roleId: string) {}
 }

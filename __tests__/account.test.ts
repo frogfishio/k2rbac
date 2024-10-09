@@ -70,16 +70,14 @@ describe("Account Class", () => {
 
       const newAccount = await accountInstance.create(userId, roles);
 
-      const retrievedAccount = await accountInstance.getById(newAccount._uuid);
+      const retrievedAccount = await accountInstance.get(newAccount._uuid);
 
       expect(retrievedAccount).toBeDefined();
       expect(retrievedAccount?.userRoles[userId]).toEqual(roles);
     });
 
     it("should throw an error if account ID does not exist", async () => {
-      await expect(accountInstance.getById("invalid-id")).rejects.toThrow(
-        K2Error
-      );
+      await expect(accountInstance.get("invalid-id")).rejects.toThrow(K2Error);
     });
   });
 
@@ -101,7 +99,7 @@ describe("Account Class", () => {
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.getById(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount._uuid);
       expect(updatedAccount?.userRoles[newUserId]).toEqual(newRoles);
     });
 
@@ -129,7 +127,7 @@ describe("Account Class", () => {
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.getById(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount._uuid);
       expect(updatedAccount?.userRoles[newUserId]).toBeUndefined();
     });
 
@@ -155,7 +153,7 @@ describe("Account Class", () => {
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.getById(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount._uuid);
       expect(updatedAccount?.userRoles[userId]).toEqual(
         expect.arrayContaining(["admin", "viewer"])
       );
@@ -183,7 +181,7 @@ describe("Account Class", () => {
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.getById(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount._uuid);
       expect(updatedAccount?.userRoles[userId]).toEqual(["admin"]);
     });
 
@@ -201,31 +199,19 @@ describe("Account Class", () => {
 
       const newAccount = await accountInstance.create(userId, roles);
 
-      const result = await accountInstance.removeAccount(newAccount._uuid);
+      const result = await accountInstance.delete(newAccount._uuid);
 
       expect(result).toStrictEqual({ deleted: 1 }); // Use toStrictEqual here
 
-      await expect(accountInstance.getById(newAccount._uuid)).rejects.toThrow(
+      await expect(accountInstance.get(newAccount._uuid)).rejects.toThrow(
         K2Error
       );
     });
 
     it("should throw an error if account does not exist", async () => {
-      await expect(accountInstance.removeAccount("invalid-id")).rejects.toThrow(
+      await expect(accountInstance.delete("invalid-id")).rejects.toThrow(
         K2Error
       );
-    });
-  });
-
-  describe("isSystem() method", () => {
-    it("should return true if the user and role is the system account", () => {
-      const isSystem = accountInstance.isSystem("system", "system");
-      expect(isSystem).toBe(true);
-    });
-
-    it("should return false if the user and role is not the system account", () => {
-      const isSystem = accountInstance.isSystem("user123", "admin");
-      expect(isSystem).toBe(false);
     });
   });
 });

@@ -56,13 +56,13 @@ export class Account {
       throw new K2Error(
         ServiceError.VALIDATION_ERROR,
         `Failed to create account - ${errorMessage}`,
-        "acc_create"
+        "99vi55e253701zw4ypdv"
       );
     }
   }
 
   // Retrieve an account by its unique ID
-  public async getById(accountId: string): Promise<AccountDocument | null> {
+  public async get(accountId: string): Promise<AccountDocument | null> {
     //checkPermission(this.ticket, "account_read"); // Permission check before action
     try {
       const result: any = await this.db.get("_accounts", accountId);
@@ -73,12 +73,12 @@ export class Account {
       throw new K2Error(
         ServiceError.NOT_FOUND,
         `Account not found - ${errorMessage}`,
-        "acc_get_by_id"
+        "56e586ootqm45jnv6vzl"
       );
     }
   }
 
-  public async removeAccount(accountId: string): Promise<{ deleted: number }> {
+  public async delete(accountId: string): Promise<{ deleted: number }> {
     // Check permission before performing the delete operation
     //checkPermission(this.ticket, "account_delete");
 
@@ -90,7 +90,7 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to remove account - ${errorMessage}`,
-        "acc_remove"
+        "f6p95a1kht5qztkvef2v"
       );
     }
   }
@@ -103,12 +103,12 @@ export class Account {
   ): Promise<boolean> {
     //checkPermission(this.ticket, "account_add_user"); // Permission check before action
     try {
-      const account = await this.getById(accountId);
+      const account = await this.get(accountId);
       if (!account) {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           "Account not found",
-          "acc_add_user_not_found"
+          "s6v5wnch66u5gjqw763x"
         );
       }
 
@@ -121,7 +121,7 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to add user to account - ${errorMessage}`,
-        "acc_add_user"
+        "s6v5wnch66u5gjqw763x"
       );
     }
   }
@@ -130,12 +130,12 @@ export class Account {
   public async removeUser(accountId: string, userId: string): Promise<boolean> {
     //checkPermission(this.ticket, "account_remove_user"); // Permission check before action
     try {
-      const account = await this.getById(accountId);
+      const account = await this.get(accountId);
       if (!account) {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           "Account not found",
-          "acc_remove_user_not_found"
+          "s6v5wnch66u5gjqw763x"
         );
       }
 
@@ -148,7 +148,7 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to remove user from account - ${errorMessage}`,
-        "acc_remove_user"
+        "u01p35abflj0y3891xy0"
       );
     }
   }
@@ -161,12 +161,12 @@ export class Account {
   ): Promise<boolean> {
     //checkPermission(this.ticket, "account_add_roles"); // Permission check before action
     try {
-      const account = await this.getById(accountId);
+      const account = await this.get(accountId);
       if (!account) {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           "Account not found",
-          "acc_add_roles_to_user_not_found"
+          "6b777cbifi3mk112v1bd"
         );
       }
 
@@ -186,7 +186,7 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to add roles to user - ${errorMessage}`,
-        "acc_add_roles_to_user"
+        "j73eni1zih763g8z1v35"
       );
     }
   }
@@ -199,12 +199,12 @@ export class Account {
   ): Promise<boolean> {
     //checkPermission(this.ticket, "account_remove_roles"); // Permission check before action
     try {
-      const account = await this.getById(accountId);
+      const account = await this.get(accountId);
       if (!account) {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           "Account not found",
-          "acc_remove_roles_from_user_not_found"
+          "q13o413jt534d77t7h65"
         );
       }
 
@@ -212,7 +212,7 @@ export class Account {
         throw new K2Error(
           ServiceError.NOT_FOUND,
           "User not found in account",
-          "acc_remove_roles_from_user_user_not_found"
+          "sg3ccooywi3k2p58k4fa"
         );
       }
 
@@ -234,14 +234,9 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to remove roles from user - ${errorMessage}`,
-        "acc_remove_roles_from_user"
+        "n2ox49b3501alna3r230"
       );
     }
-  }
-
-  // Check if a given user and role is the system account
-  public isSystem(userId: string, roleId: string): boolean {
-    return userId === this.systemRoleId && roleId === this.systemRoleId;
   }
 
   // Find accounts based on given criteria
@@ -271,7 +266,7 @@ export class Account {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
         `Failed to find accounts - ${errorMessage}`,
-        "acc_find"
+        "w3976sjst487t058575g"
       );
     }
   }

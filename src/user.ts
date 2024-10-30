@@ -3,6 +3,7 @@ import { K2Error, ServiceError } from "@frogfish/k2error";
 import { Ticket } from "./types";
 import debugLib from "debug";
 import { Secure } from "./secure";
+import { K2CreateResponse, K2DeleteResponse } from "./k2types";
 const debug = debugLib("k2:rbac:user");
 
 export enum IdentityType {
@@ -33,7 +34,7 @@ export class User {
     type: IdentityType,
     identifier: string,
     identifiedBy: string
-  ): Promise<{ id: string }> {
+  ): Promise<K2CreateResponse> {
     const identity = await this.createIdentity(type, identifier, identifiedBy);
 
     try {
@@ -56,7 +57,7 @@ export class User {
     return this.stripIdentifiers(user as UserDocument);
   }
 
-  async delete(id: string): Promise<{ deleted: number }> {
+  async delete(id: string): Promise<K2DeleteResponse> {
     return await this.db.delete("_users", id);
   }
 

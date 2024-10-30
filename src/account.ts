@@ -8,6 +8,7 @@ import { Ticket } from "./types"; // Import the Ticket type
 // import { Auth } from "./auth";
 
 import debugLib from "debug";
+import { K2CreateResponse, K2DeleteResponse } from "./k2types";
 const debug = debugLib("k2:rbac:account");
 
 // Define the structure of an Account document
@@ -32,7 +33,7 @@ export class Account {
   public async create(
     userId: string,
     roles: Array<string>
-  ): Promise<AccountDocument> {
+  ): Promise<K2CreateResponse> {
     //checkPermission(this.ticket, "account_create"); // Permission check before action
     try {
       const newAccount: Partial<AccountDocument> = {
@@ -41,15 +42,7 @@ export class Account {
         },
       };
 
-      const result = await this.db.create(
-        "_accounts",
-        this.ticket.account,
-        newAccount
-      );
-
-      debug(`>>>> ${JSON.stringify(result)}`);
-      const rac = await this.db.get("_accounts", result.id);
-      return rac as AccountDocument;
+      return await this.db.create("_accounts", this.ticket.account, newAccount);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
@@ -78,7 +71,7 @@ export class Account {
     }
   }
 
-  public async delete(accountId: string): Promise<{ deleted: number }> {
+  public async delete(accountId: string): Promise<K2DeleteResponse> {
     // Check permission before performing the delete operation
     //checkPermission(this.ticket, "account_delete");
 

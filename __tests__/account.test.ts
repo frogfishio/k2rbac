@@ -47,7 +47,7 @@ describe("Account Class", () => {
       const newAccount = await accountInstance.create(userId, roles);
 
       expect(newAccount).toBeDefined();
-      expect(newAccount.userRoles).toEqual({ [userId]: roles });
+      expect(newAccount.id).toBeDefined();
     });
 
     it("should throw an error if account creation fails", async () => {
@@ -70,7 +70,7 @@ describe("Account Class", () => {
 
       const newAccount = await accountInstance.create(userId, roles);
 
-      const retrievedAccount = await accountInstance.get(newAccount._uuid);
+      const retrievedAccount = await accountInstance.get(newAccount.id);
 
       expect(retrievedAccount).toBeDefined();
       expect(retrievedAccount?.userRoles[userId]).toEqual(roles);
@@ -92,14 +92,14 @@ describe("Account Class", () => {
       const newRoles = ["viewer"];
 
       const result = await accountInstance.addUser(
-        newAccount._uuid,
+        newAccount.id,
         newUserId,
         newRoles
       );
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.get(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount.id);
       expect(updatedAccount?.userRoles[newUserId]).toEqual(newRoles);
     });
 
@@ -118,16 +118,13 @@ describe("Account Class", () => {
       const newAccount = await accountInstance.create(userId, roles);
 
       const newUserId = "user456";
-      await accountInstance.addUser(newAccount._uuid, newUserId, ["viewer"]);
+      await accountInstance.addUser(newAccount.id, newUserId, ["viewer"]);
 
-      const result = await accountInstance.removeUser(
-        newAccount._uuid,
-        newUserId
-      );
+      const result = await accountInstance.removeUser(newAccount.id, newUserId);
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.get(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount.id);
       expect(updatedAccount?.userRoles[newUserId]).toBeUndefined();
     });
 
@@ -146,14 +143,14 @@ describe("Account Class", () => {
       const newAccount = await accountInstance.create(userId, roles);
 
       const result = await accountInstance.addRolesToUser(
-        newAccount._uuid,
+        newAccount.id,
         userId,
         ["viewer"]
       );
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.get(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount.id);
       expect(updatedAccount?.userRoles[userId]).toEqual(
         expect.arrayContaining(["admin", "viewer"])
       );
@@ -174,14 +171,14 @@ describe("Account Class", () => {
       const newAccount = await accountInstance.create(userId, roles);
 
       const result = await accountInstance.removeRolesFromUser(
-        newAccount._uuid,
+        newAccount.id,
         userId,
         ["editor"]
       );
 
       expect(result).toBe(true);
 
-      const updatedAccount = await accountInstance.get(newAccount._uuid);
+      const updatedAccount = await accountInstance.get(newAccount.id);
       expect(updatedAccount?.userRoles[userId]).toEqual(["admin"]);
     });
 
@@ -199,13 +196,11 @@ describe("Account Class", () => {
 
       const newAccount = await accountInstance.create(userId, roles);
 
-      const result = await accountInstance.delete(newAccount._uuid);
+      const result = await accountInstance.delete(newAccount.id);
 
       expect(result).toStrictEqual({ deleted: 1 }); // Use toStrictEqual here
 
-      await expect(accountInstance.get(newAccount._uuid)).rejects.toThrow(
-        K2Error
-      );
+      await expect(accountInstance.get(newAccount.id)).rejects.toThrow(K2Error);
     });
 
     it("should throw an error if account does not exist", async () => {

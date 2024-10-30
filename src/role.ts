@@ -3,6 +3,11 @@ import { K2Error, ServiceError } from "@frogfish/k2error";
 import debugLib from "debug";
 import { Ticket } from "./types";
 import { z } from "zod";
+import {
+  K2CreateResponse,
+  K2DeleteResponse,
+  K2UpdateResponse,
+} from "./k2types";
 
 const debug = debugLib("k2:rbac:role");
 
@@ -47,7 +52,7 @@ export class Role {
     name: string,
     permissions: string[] = [],
     code?: string
-  ): Promise<RoleDocument> {
+  ): Promise<K2CreateResponse> {
     try {
       const newRole: Partial<RoleDocument> = {
         name,
@@ -60,8 +65,8 @@ export class Role {
 
       // Perform the async check for unique code
       if (code) {
-        const isCodeUnique = await this.isCodeUnique(code);
-        if (!isCodeUnique) {
+        const found = await this.db.findOne("_roles", { code: code });
+        if (found) {
           throw new K2Error(
             ServiceError.ALREADY_EXISTS,
             `Role with code "${code}" already exists`,
@@ -72,13 +77,7 @@ export class Role {
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
 
-      const result = await this.db.create(
-        "_roles",
-        this.ticket.account,
-        newRole
-      );
-      const role = await this.db.findOne("_roles", { _uuid: result.id });
-      return role as RoleDocument;
+      return await this.db.create("_roles", this.ticket.account, newRole);
     } catch (error) {
       if (error instanceof z.ZodError) {
         throw new K2Error(
@@ -98,12 +97,6 @@ export class Role {
         error instanceof Error ? error : undefined
       );
     }
-  }
-
-  // Helper method to check if the role code is unique
-  private async isCodeUnique(code: string): Promise<boolean> {
-    const existingRole = await this.db.findOne("_roles", { code });
-    return !existingRole;
   }
 
   async get(roleId: string): Promise<RoleDocument> {
@@ -142,15 +135,15 @@ export class Role {
   public async update(
     roleId: string,
     data: Partial<RoleDocument>
-  ): Promise<{ updated: number }> {
+  ): Promise<K2UpdateResponse> {
     try {
       // Validate the role data using Zod before updating
       roleSchema.partial().parse(data); // Use partial schema for partial updates
 
       // Check if the code is being updated and if so, ensure it's unique
       if (data.code) {
-        const isCodeUnique = await this.isCodeUnique(data.code);
-        if (!isCodeUnique) {
+        const found = await this.db.findOne("_roles", { code: data.code });
+        if (found && found._uuid !== roleId) {
           throw new K2Error(
             ServiceError.ALREADY_EXISTS,
             `Role with code "${data.code}" already exists`,
@@ -182,7 +175,7 @@ export class Role {
   }
 
   // Delete a role by its ID
-  public async delete(roleId: string): Promise<{ deleted: number }> {
+  public async delete(roleId: string): Promise<K2DeleteResponse> {
     try {
       return await this.db.delete("_roles", roleId);
     } catch (error) {

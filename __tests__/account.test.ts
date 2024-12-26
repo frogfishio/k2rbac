@@ -9,16 +9,8 @@ import { K2Error } from "@frogfish/k2error"; // Import error classes
 describe("Account Class", () => {
   const dbName = "test"; // Define the test database name
 
-  // Define a minimal database configuration
-  const config: DatabaseConfig = {
-    name: dbName,
-    hosts: [
-      {
-        host: "localhost",
-        port: 27017, // Default MongoDB port
-      },
-    ],
-  };
+  // Configuration that works
+  const config: DatabaseConfig = require("../dbconfig.json");
 
   const systemTicket: Ticket = Auth.getSystemTicket(); // Authorization ticket
   let dbInstance: K2DB; // Variable to hold the K2DB instance

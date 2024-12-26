@@ -1,7 +1,6 @@
 // src/Auth.ts
 
 import jwt from "jsonwebtoken";
-import { User } from "./user"; // Import the User class
 import { Ticket } from "./types"; // Import Ticket interface
 import ms from "ms";
 import crypto from "crypto";

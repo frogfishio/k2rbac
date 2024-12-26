@@ -6,41 +6,24 @@ import { Secure } from "./secure";
 import { K2CreateResponse, K2DeleteResponse } from "./k2types";
 const debug = debugLib("k2:rbac:user");
 
-export enum IdentityType {
-  EMAIL = "email",
-  USER = "user",
-}
-
-enum IdentityMethod {
-  BCRYPT = "bcrypt",
-}
-
 export interface UserDocument extends BaseDocument {
-  identities: Identity[];
-  restrictedMode: boolean;
-}
-
-export interface Identity {
-  type: IdentityType;
-  identifier: string;
-  identifiedBy?: string;
-  method?: string;
 }
 
 export class User {
   constructor(private db: K2DB, private ticket: Ticket) {}
 
   public async createUser(
-    type: IdentityType,
-    identifier: string,
-    identifiedBy: string
+    username: string,
+    password: string
   ): Promise<K2CreateResponse> {
-    const identity = await this.createIdentity(type, identifier, identifiedBy);
+    await this.validateUsername(username);
+    await this.validatePassword(password);
+    const passwordHash = await Secure.bcrypt(password);
 
     try {
       return await this.db.create("_users", this.ticket.account, {
-        identities: [identity],
-        restrictedMode: false,
+        username,
+        passwordHash,
       });
     } catch (error) {
       throw new K2Error(
@@ -52,146 +35,128 @@ export class User {
     }
   }
 
-  async get(id: string): Promise<UserDocument> {
-    const user = await this.db.get("_users", id);
-    return this.stripIdentifiers(user as UserDocument);
+  public async get(id: string): Promise<UserDocument> {
+    return (await this.db.get("_users", id)) as UserDocument;
   }
 
-  async delete(id: string): Promise<K2DeleteResponse> {
+  public async delete(id: string): Promise<K2DeleteResponse> {
     return await this.db.delete("_users", id);
   }
 
-  async findByIdentifier(
-    type: IdentityType,
-    identifier: string
-  ): Promise<UserDocument | null> {
-    const user = await this.db.findOne("_users", {
-      "identities.type": type,
-      "identities.identifier": identifier,
-    });
-
-    return user ? this.stripIdentifiers(user as UserDocument) : null;
-  }
-
-  async authenticate(
-    type: IdentityType,
-    identifier: string,
-    identifiedBy: string
+  public async authenticate(
+    username: string,
+    password: string
   ): Promise<UserDocument> {
     const user = (await this.db.findOne("_users", {
-      "identities.type": type,
-      "identities.identifier": identifier,
+      username,
     })) as UserDocument;
 
     if (!user) {
       throw new K2Error(
         ServiceError.NOT_FOUND,
-        `User ${identifier} not found`,
+        `User ${username} not found`,
         "kae0644rh475d12gacct",
         undefined
       );
     }
 
-    const identity = user.identities.find(
-      (id: Identity) => id.type === type && id.identifier === identifier
-    );
-
-    if (!identity) {
-      throw new K2Error(
-        ServiceError.SYSTEM_ERROR,
-        `Identity conflict`,
-        "331yy8a7nolevo82td5u",
-        undefined
-      );
-    }
-
-    if ((await this.isValidIdentity(identity, identifiedBy)) !== true) {
+    const isValid = await Secure.bcryptVerify(password, user.passwordHash);
+    if (!isValid) {
       throw new K2Error(
         ServiceError.AUTH_ERROR,
-        "Invalid identity",
+        "Invalid username or password",
         "04eyjdnj7mwfno5v6xz0",
         undefined
       );
     }
 
-    return this.stripIdentifiers(user);
+    return user;
+  }
+
+  public async generateOTP(username: string): Promise<string> {
+    const user = (await this.db.findOne("_users", {
+      username,
+    })) as UserDocument;
+
+    if (!user) {
+      throw new K2Error(
+        ServiceError.NOT_FOUND,
+        `User ${username} not found`,
+        "8abc67dknop0981r45jv",
+        undefined
+      );
+    }
+
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const timestamp = Date.now();
+
+    // Store OTP and timestamp in the user's record
+    await this.db.update("_users", user._uuid, {
+      otp,
+      otpTimestamp: timestamp,
+    });
+
+    return otp;
+  }
+
+  public async updatePassword(
+    username: string,
+    newPassword: string,
+    { oldPassword, otp }: { oldPassword?: string; otp?: string }
+  ): Promise<void> {
+    const user = (await this.db.findOne("_users", {
+      username,
+    })) as UserDocument;
+
+    if (!user) {
+      throw new K2Error(
+        ServiceError.NOT_FOUND,
+        `User ${username} not found`,
+        "41f2akd901jsiwkq0kxm",
+        undefined
+      );
+    }
+
+    let isAuthenticated = false;
+
+    if (oldPassword) {
+      isAuthenticated = await Secure.bcryptVerify(
+        oldPassword,
+        user.passwordHash
+      );
+    } else if (otp) {
+      if (user.otp !== otp) {
+        isAuthenticated = false;
+      } else {
+        isAuthenticated = await this.validateOTP(otp, user.otpTimestamp);
+      }
+    }
+
+    if (!isAuthenticated) {
+      throw new K2Error(
+        ServiceError.AUTH_ERROR,
+        "Invalid old password or OTP",
+        "f82m7k9x92kql09ahvzz",
+        undefined
+      );
+    }
+
+    await this.validatePassword(newPassword);
+
+    const newPasswordHash = await Secure.bcrypt(newPassword);
+
+    await this.db.update("_users", user._uuid, {
+      passwordHash: newPasswordHash,
+      otp: null, // Clear OTP after use
+      otpTimestamp: null,
+    });
   }
 
   /*********** helpers *************/
 
-  private async createIdentity(
-    type: IdentityType,
-    identifier: string,
-    identifiedBy: string
-  ): Promise<Identity> {
-    const identity: Partial<Identity> = { type, identifier };
-
-    if (type === IdentityType.EMAIL) {
-      identity.method = IdentityMethod.BCRYPT;
-      await this.validateEmail(identifier);
-      identity.identifiedBy = await Secure.bcrypt(identifiedBy);
-    }
-
-    return identity as Identity;
-  }
-
-  private async isValidIdentity(
-    identity: Identity,
-    identifiedBy: string
-  ): Promise<boolean> {
-    switch (identity.method) {
-      case IdentityMethod.BCRYPT:
-        return await Secure.bcryptVerify(
-          identifiedBy,
-          identity.identifiedBy || ""
-        );
-    }
-
-    throw new K2Error(
-      ServiceError.AUTH_ERROR,
-      "Invalid identity authorisation method",
-      "6ue424dz4v1hyd9o8h8b",
-      undefined
-    );
-  }
-
-  private stripIdentifiers(user: UserDocument): UserDocument {
-    for (const identity of user.identities) {
-      delete identity.method;
-      delete identity.identifiedBy;
-    }
-
-    return user;
-  }
-
-  private async validateEmail(email: string) {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        "Invalid email format",
-        "ev2633py5739q51hlpzz",
-        undefined
-      );
-    }
-
-    const existingUser = await this.db.findOne("_users", {
-      "identities.identifier": email,
-    });
-    if (existingUser) {
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        "Email is already registered",
-        "7x2715n26d5a9o5c6g3j",
-        undefined
-      );
-    }
-  }
-
   private async validateUsername(username: string) {
-    const existingUser = await this.db.findOne("_users", {
-      "identities.identifier": username,
-    });
+    const existingUser = await this.db.findOne("_users", { username });
     if (existingUser) {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,
@@ -200,5 +165,39 @@ export class User {
         undefined
       );
     }
+  }
+
+  private async validatePassword(password: string) {
+    const minLength = 8;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasDigit = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+    if (
+      password.length < minLength ||
+      !hasUpperCase ||
+      !hasLowerCase ||
+      !hasDigit ||
+      !hasSpecialChar
+    ) {
+      throw new K2Error(
+        ServiceError.SERVICE_ERROR,
+        "Password must be at least 8 characters long and include uppercase, lowercase, digit, and special character",
+        "p1jz9xm3vwbyn5k6cfr8",
+        undefined
+      );
+    }
+  }
+
+  private async validateOTP(otp: string, timestamp: number): Promise<boolean> {
+    if (!otp || !timestamp) {
+      return false;
+    }
+
+    const otpExpiryTime = 5 * 60 * 1000; // 5 minutes
+    const isExpired = Date.now() - timestamp > otpExpiryTime;
+
+    return true;
   }
 }

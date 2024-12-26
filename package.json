@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "watch": "tsc --watch"
   },
   "author": "El'Diablo",
   "license": "GPL-3.0-only",

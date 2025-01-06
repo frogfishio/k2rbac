@@ -8,6 +8,7 @@ import debugLib from "debug";
 import { Account, AccountDocument } from "./account"; // Import Account class
 import { Role, RoleDocument } from "./role"; // Import Role class
 import { K2DB } from "@frogfish/k2db/db";
+import { K2Error, ServiceError } from "@frogfish/k2error";
 
 const debug = debugLib("k2:rbac:auth");
 
@@ -18,97 +19,156 @@ const JWT_REFRESH_SECRET =
 const JWT_REFRESH_EXPIRATION = process.env.JWT_REFRESH_EXPIRATION || "7d";
 const TICKET_EXPIRATION = process.env.JWT_EXPIRATION || "15m";
 
+const MAX_USER_ACCOUNTS_BUFFER = 1000;
+
 // Parse TICKET_EXPIRATION to milliseconds
 const ticketExpirationInMillis = ms(TICKET_EXPIRATION);
 
-interface TokenPayload {
+export interface TokenPayload {
   userId: string;
   roles: string[]; // Array of role IDs (not codes)
   restrictedMode: boolean;
 }
 
-interface AuthTokens {
+export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
 export class Auth {
   private db: K2DB; // K2Data for database access
-  private account: Account; // Instance of Account class
-  private role: Role; // Instance of Role class
+  private rolesAPI: Role; // Instance of Role class
+  private accountsAPI: Account; // Instance of Account class
+
+  private static roles?: { [key: string]: string[] };
+  private static userAccounts: { [key: string]: string } = {};
+  private static userAccountsBuffer: Array<string> = [];
 
   constructor(db: K2DB, ticket: Ticket) {
     this.db = db;
-    this.account = new Account(this.db, ticket);
-    this.role = new Role(this.db, ticket);
+    this.accountsAPI = new Account(this.db, ticket);
+    this.rolesAPI = new Role(this.db, ticket);
   }
 
-  // // Authenticate a user by identity and password/method
-  // public async authenticate(
-  //   identityType: string, // e.g., "email" or "username"
-  //   identityValue: string,
-  //   identifiedBy: string, // e.g., password
-  //   method: string // e.g., "bcrypt"
-  // ): Promise<AuthTokens | null> {
-  //   const user = await this.getUserByIdentity(identityType, identityValue);
+  private cacheUserAccount(userId: string, accountId: string) {
+    if (Auth.userAccountsBuffer.length >= MAX_USER_ACCOUNTS_BUFFER) {
+      delete Auth.userAccounts[Auth.userAccountsBuffer.shift() as string];
+    }
+    Auth.userAccounts[userId] = accountId;
+    Auth.userAccountsBuffer.push(userId);
+  }
 
-  //   if (!user) {
-  //     throw new Error("Invalid credentials");
-  //   }
+  private async getUserAccount(userId: string): Promise<string> {
+    if (Auth.userAccounts[userId]) {
+      return Auth.userAccounts[userId];
+    }
 
-  //   // Authenticate the user using the provided method (e.g., bcrypt)
-  //   const isValid = await user.authenticate(identifiedBy, method, user._uuid);
+    const result = await this.db.findOne("_accounts", {
+      _owner: userId,
+    });
 
-  //   if (!isValid) {
-  //     throw new Error("Invalid credentials");
-  //   }
+    if (!result) {
+      throw new Error("User account not found");
+    }
 
-  //   // If accountId is specified, verify that the user belongs to the account
-  //   if (accountId) {
-  //     const account = await this.account.getById(accountId);
-  //     if (!account || !account.userRoles[user._uuid]) {
-  //       throw new Error("User does not belong to the specified account");
-  //     }
-  //   } else {
-  //     // If no accountId is specified, retrieve all accounts the user belongs to
-  //     // For simplicity, assume a user belongs to a single account
-  //     // Modify as needed to support multiple accounts per user
-  //     const accounts = await this.getAccountsForUser(user._uuid);
-  //     if (accounts.length === 0) {
-  //       throw new Error("User does not belong to any account");
-  //     }
-  //     accountId = accounts[0]._uuid; // Select the first account
-  //   }
+    this.cacheUserAccount(userId, result._uuid);
+    return result._uuid;
+  }
 
-  //   // Retrieve roles for the user within the account
-  //   const roles = await this.account.getUserRoles(accountId, user._uuid);
+  private async cacheRoles() {
+    Auth.roles = { system: ["system"], admin: ["admin"], member: ["member"] };
+    const result = await this.rolesAPI.find({});
+    for (const role of result) {
+      Auth.roles[role._uuid] = role.permissions;
+    }
+  }
 
-  //   // Aggregate permissions from roles
-  //   const permissions = await this.getPermissionsForRoles(roles);
+  // Helper function to get permissions based on role ID
+  private async getRolePermissions(roles: string[]): Promise<string[]> {
+    if (!Auth.roles) {
+      await this.cacheRoles();
+    }
 
-  //   // After successful authentication, create a JWT payload
-  //   const payload: TokenPayload = {
-  //     userId: user._uuid,
-  //     accountId,
-  //     roles,
-  //     restrictedMode: user.restrictedMode,
-  //   };
+    Auth.roles = Auth.roles || {};
 
-  //   return this.generateTokens(payload);
-  // }
+    const map: { [key: string]: boolean } = {};
+    for (const role of roles) {
+      if (Auth.roles[role]) {
+        Auth.roles[role].forEach((permission) => {
+          map[permission] = true;
+        });
+      }
+    }
 
-  // // Helper function to retrieve user by identity
-  // private async getUserByIdentity(
-  //   identityType: string,
-  //   identityValue: string
-  // ): Promise<User | null> {
-  //   const userClass = new User(this.db, Auth.getSystemTicket());
-  //   const user = await userClass.getByIdentity(identityType, identityValue);
-  //   return user;
-  // }
+    return Object.keys(map);
+  }
+
+  public async getTicket(token: string): Promise<Ticket> {
+    let payload;
+
+    try {
+      payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new K2Error(
+          ServiceError.INVALID_TOKEN,
+          "Token expired",
+          "aoapi6lrv4m8rti6c7wq"
+        );
+      }
+
+      throw new K2Error(
+        ServiceError.INVALID_TOKEN,
+        `Invalid token: ${error}`,
+        "l2u8lwwbiiam7gfdsw5m"
+      );
+    }
+
+    const permissions = await this.getRolePermissions(payload.roles);
+    const accountId = await this.getUserAccount(payload.userId);
+
+    const ticket: Ticket = {
+      user: payload.userId,
+      account: accountId,
+      permissions,
+      restricted: payload.restrictedMode,
+      expiresAt: Date.now() + ticketExpirationInMillis,
+    };
+
+    return Auth.checksumTicket(ticket);
+  }
+
+  /********************************************** */
+
+  public static allow(
+    ticket: Ticket,
+    permissions: string[],
+    trace?: string
+  ): boolean {
+    for (const permission of permissions) {
+      if (ticket.permissions.includes(permission)) {
+        return true;
+      }
+    }
+
+    throw new K2Error(
+      ServiceError.FORBIDDEN,
+      `Permission denied: ${JSON.stringify(ticket)}`,
+      trace || "09ij3rc687wc0ltqbf6a"
+    );
+  }
+
+  // Refresh tokens with refreshToken
+  public static refreshTokens(refreshToken: string): AuthTokens {
+    const payload = jwt.verify(
+      refreshToken,
+      JWT_REFRESH_SECRET
+    ) as TokenPayload;
+    return Auth.generateTokens(payload);
+  }
 
   // Helper function to generate JWT access and refresh tokens
-  private generateTokens(payload: TokenPayload): AuthTokens {
+  static generateTokens(payload: TokenPayload): AuthTokens {
     const accessToken = jwt.sign(payload, JWT_SECRET, {
       expiresIn: JWT_EXPIRATION,
     });
@@ -122,85 +182,10 @@ export class Auth {
     };
   }
 
-  // // Inflate JWT into a Ticket (used for authorization in backend)
-  // public async validateToken(token: string): Promise<Ticket | null> {
-  //   try {
-  //     const payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
-  //     const permissions = await this.getPermissionsForRoles(payload.roles);
-
-  //     const ticket: Ticket = {
-  //       user: payload.userId,
-  //       account: payload.accountId,
-  //       permissions,
-  //       restricted: payload.restrictedMode,
-  //       expiresAt: Date.now() + ticketExpirationInMillis,
-  //     };
-
-  //     return Auth.checksumTicket(ticket);
-  //   } catch (err) {
-  //     debug(`Token validation failed: ${err}`);
-  //     return null; // Token validation failed
-  //   }
-  // }
-
-  // // Helper function to get accounts a user belongs to
-  // private async getAccountsForUser(userId: string): Promise<AccountDocument[]> {
-  //   try {
-  //     const accounts = await this.db.find("_accounts", {
-  //       where: {
-  //         [`userRoles.${userId}`]: { $exists: true },
-  //       },
-  //     });
-  //     return accounts as AccountDocument[];
-  //   } catch (error) {
-  //     debug(`Failed to retrieve accounts for user ${userId}: ${error}`);
-  //     throw new K2Error(
-  //       ServiceError.SERVICE_ERROR,
-  //       `Failed to retrieve accounts for user - ${
-  //         error instanceof Error ? error.message : "Unknown error"
-  //       }`,
-  //       "auth_get_accounts_for_user_error",
-  //       error instanceof Error ? error : undefined
-  //     );
-  //   }
-  // }
-
-  // Helper function to get permissions based on role IDs
-  private async getPermissionsForRoles(roles: string[]): Promise<string[]> {
-    const permissionsSet = new Set<string>();
-
-    for (const roleId of roles) {
-      const roleDoc: RoleDocument | null = await this.role.get(roleId);
-      if (roleDoc) {
-        roleDoc.permissions.forEach((permission) =>
-          permissionsSet.add(permission)
-        );
-      } else {
-        debug(`Role not found: ${roleId}`);
-      }
-    }
-
-    return Array.from(permissionsSet);
+  // Inflate JWT into a Ticket (used for authorization in backend)
+  public validateToken(token: string): TokenPayload {
+    return jwt.verify(token, JWT_SECRET) as TokenPayload;
   }
-
-  // // Refresh tokens with refreshToken
-  // public async refreshTokens(refreshToken: string): Promise<AuthTokens | null> {
-  //   try {
-  //     const payload = jwt.verify(
-  //       refreshToken,
-  //       JWT_REFRESH_SECRET
-  //     ) as TokenPayload;
-  //     return this.generateTokens({
-  //       userId: payload.userId,
-  //       accountId: payload.accountId,
-  //       roles: payload.roles,
-  //       restrictedMode: payload.restrictedMode,
-  //     });
-  //   } catch (err) {
-  //     debug(`Token refresh failed: ${err}`);
-  //     return null; // Token refresh failed
-  //   }
-  // }
 
   // Ticket checksum logic (same as in your original implementation)
   static checksumTicket(ticket: Ticket): Ticket {

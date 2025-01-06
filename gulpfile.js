@@ -1,18 +1,18 @@
-const { src, dest, series, parallel } = require('gulp');
-const bump = require('gulp-bump');
-const clean = require('gulp-clean');
-const ts = require('gulp-typescript');
-const jsonTransform = require('gulp-json-transform');
+const { src, dest, series, parallel } = require("gulp");
+const bump = require("gulp-bump");
+const clean = require("gulp-clean");
+const ts = require("gulp-typescript");
+const jsonTransform = require("gulp-json-transform");
 
 // Paths for tasks
 const paths = {
-  dist: 'dist/',
-  tsFiles: 'src/**/*.ts',
-  packageJson: 'package.json'
+  dist: "dist/",
+  tsFiles: "src/**/*.ts",
+  packageJson: "package.json",
 };
 
 // TypeScript project
-const tsProject = ts.createProject('tsconfig.json');
+const tsProject = ts.createProject("tsconfig.json");
 
 // Clean task: Cleans the `dist/` directory
 function cleanDist() {
@@ -21,22 +21,21 @@ function cleanDist() {
 
 // Transpile TypeScript files
 function buildTs() {
-  return tsProject
-    .src()
-    .pipe(tsProject())
-    .pipe(dest(paths.dist));
+  return tsProject.src().pipe(tsProject()).pipe(dest(paths.dist));
 }
 
 // Copy non-TypeScript files (like `README`, `LICENSE`) to dist
 function copyFiles() {
-  return src(['README.md', 'LICENSE'], { allowEmpty: true }).pipe(dest(paths.dist));
+  return src(["README.md", "LICENSE"], { allowEmpty: true }).pipe(
+    dest(paths.dist)
+  );
 }
 
 // Bump version in `package.json` before copying
 function bumpVersion() {
   return src(paths.packageJson)
-    .pipe(bump({ type: 'patch' })) // Change to 'major', 'minor', or 'patch' as needed
-    .pipe(dest('./')); // Save the updated `package.json`
+    .pipe(bump({ type: "patch" })) // Change to 'major', 'minor', or 'patch' as needed
+    .pipe(dest("./")); // Save the updated `package.json`
 }
 
 // Copy and transform `package.json` for distribution
@@ -49,8 +48,8 @@ function copyPackageJson() {
         delete pkg.scripts;
 
         // Update paths to the `dist` directory
-        pkg.main = 'data.js';
-        pkg.types = 'data.d.ts';
+        pkg.main = "data.js";
+        pkg.types = "data.d.ts";
 
         return pkg;
       }, 2)

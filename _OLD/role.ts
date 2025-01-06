@@ -8,7 +8,6 @@ import {
   K2DeleteResponse,
   K2UpdateResponse,
 } from "./k2types";
-import { Auth } from "./auth";
 
 const debug = debugLib("k2:rbac:role");
 
@@ -38,6 +37,7 @@ const roleSchema = z.object({
 // Define the structure of a Role document (Zod will validate it)
 export interface RoleDocument extends BaseDocument {
   name: string;
+  code?: string;
   permissions: string[]; // List of permissions (tags)
 }
 
@@ -48,12 +48,32 @@ export class Role {
   constructor(private db: K2DB, private ticket: Ticket) {}
 
   // Create a new role (not related to the hardcoded system role)
-  public async create(newRole: RoleDocument): Promise<K2CreateResponse> {
-    Auth.allow(this.ticket, ["system", "admin"], "912cup99hogtyuh1ks9k");
-
+  public async create(
+    name: string,
+    permissions: string[] = [],
+    code?: string
+  ): Promise<K2CreateResponse> {
     try {
+      const newRole: Partial<RoleDocument> = {
+        name,
+        permissions,
+        code,
+      };
+
       // Validate the role document using Zod before saving
       roleSchema.parse(newRole);
+
+      // Perform the async check for unique code
+      if (code) {
+        const found = await this.db.findOne("_roles", { code: code });
+        if (found) {
+          throw new K2Error(
+            ServiceError.ALREADY_EXISTS,
+            `Role with code "${code}" already exists`,
+            "code_uniqueness_error"
+          );
+        }
+      }
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
 
@@ -80,7 +100,6 @@ export class Role {
   }
 
   async get(roleId: string): Promise<RoleDocument> {
-    Auth.allow(this.ticket, ["system", "admin"], "crwuc6228ame1qvwwcci");
     const role: RoleDocument = (await this.db.get(
       "_roles",
       roleId
@@ -88,13 +107,35 @@ export class Role {
     return role;
   }
 
+  // Retrieve a role by its unique code (mnemonic), used
+  // only during configuration/init and hardcoded situations
+  public async getByCode(roleCode: string): Promise<RoleDocument | null> {
+    try {
+      const role = await this.db.findOne("_roles", { code: roleCode });
+      if (!role) {
+        throw new K2Error(
+          ServiceError.NOT_FOUND,
+          `Role ${roleCode} not found`,
+          "85okz2s8ctfvxh9i50jm",
+          undefined
+        );
+      }
+      return role as RoleDocument;
+    } catch (error) {
+      throw new K2Error(
+        ServiceError.NOT_FOUND,
+        `Role not found - ${error instanceof Error ? error.message : error}`,
+        "j88wfv5j7euo1rk91m45",
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   // Update a role's data
   public async update(
     roleId: string,
     data: Partial<RoleDocument>
   ): Promise<K2UpdateResponse> {
-    Auth.allow(this.ticket, ["system", "admin"], "4rgxhiehbrkuvyfc9zd8");
-
     try {
       // Validate the role data using Zod before updating
       roleSchema.partial().parse(data); // Use partial schema for partial updates
@@ -135,8 +176,6 @@ export class Role {
 
   // Delete a role by its ID
   public async delete(roleId: string): Promise<K2DeleteResponse> {
-    Auth.allow(this.ticket, ["system", "admin"], "lr9a3spnu0hhp75aqzji");
-
     try {
       return await this.db.delete("_roles", roleId);
     } catch (error) {
@@ -157,14 +196,20 @@ export class Role {
     limit?: number,
     skip?: number
   ): Promise<RoleDocument[]> {
-    Auth.allow(this.ticket, ["system", "admin"], "4i1kmtty4werovebx4ox");
     try {
-      return (await this.db.find(
-        "_roles",
-        criteria,
-        skip,
-        limit
-      )) as RoleDocument[];
+      const params: any = {
+        where: criteria,
+      };
+
+      if (limit) {
+        params.limit = limit;
+      }
+
+      if (skip) {
+        params.skip = skip;
+      }
+
+      return (await this.db.find("_roles", params)) as RoleDocument[];
     } catch (error) {
       throw new K2Error(
         ServiceError.SERVICE_ERROR,

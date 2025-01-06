@@ -1,12 +1,15 @@
 {
-  "name": "k2rbac",
-  "version": "1.0.0",
+  "name": "@frogfish/k2rbac",
+  "version": "0.0.2",
   "description": "",
   "main": "index.js",
   "scripts": {
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "watch": "tsc --watch"
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "gulp": "tsc && gulp",
+    "dist:untested": "tsc && gulp && cd dist && npm publish --access public"
   },
   "author": "El'Diablo",
   "license": "GPL-3.0-only",

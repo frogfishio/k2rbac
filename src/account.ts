@@ -2,13 +2,12 @@
 
 import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
-
-import { checkPermission } from "./util"; // Importing the permission check utility function
 import { Ticket } from "./types"; // Import the Ticket type
-// import { Auth } from "./auth";
-
 import debugLib from "debug";
 import { K2CreateResponse, K2DeleteResponse } from "./k2types";
+import { Auth } from "./auth";
+// import { Util } from "../util";
+
 const debug = debugLib("k2:rbac:account");
 
 // Define the structure of an Account document
@@ -19,22 +18,15 @@ export interface AccountDocument extends BaseDocument {
 export class Account {
   private readonly systemAccountName = "system";
   private readonly systemRoleId = "system";
-  // private ticket: Ticket;
 
-  constructor(private db: K2DB, private ticket: Ticket) {
-    // if (!Auth.verifyTicket(ticket)) {
-    //   this.ticket = Auth.getInvalidTicket();
-    // } else {
-    //   this.ticket = ticket;
-    // }
-  }
+  constructor(private db: K2DB, private ticket: Ticket) {}
 
   // Create a new account (not related to the hardcoded system account)
   public async create(
     userId: string,
     roles: Array<string>
   ): Promise<K2CreateResponse> {
-    //checkPermission(this.ticket, "account_create"); // Permission check before action
+    Auth.allow(this.ticket, ["system"], "dh1mbjbe3f84gks8fd0r");
     try {
       const newAccount: Partial<AccountDocument> = {
         userRoles: {
@@ -42,7 +34,7 @@ export class Account {
         },
       };
 
-      return await this.db.create("_accounts", this.ticket.account, newAccount);
+      return await this.db.create("_accounts", userId, newAccount);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
@@ -54,11 +46,27 @@ export class Account {
     }
   }
 
+  public async update(
+    accountId: string,
+    data: any
+  ): Promise<{ updated: number }> {
+    Auth.allow(this.ticket, ["system", "admin"], "dbq2y9cpgp4p3rf0pwol");
+    const account = await this.get(accountId);
+    return await this.db.update("_accounts", account._uuid, data);
+  }
+
   // Retrieve an account by its unique ID
-  public async get(accountId: string): Promise<AccountDocument | null> {
-    //checkPermission(this.ticket, "account_read"); // Permission check before action
+  public async get(accountId: string): Promise<AccountDocument> {
+    Auth.allow(this.ticket, ["system", "admin"], "hd879ns6aqd9yxnv7ygx");
     try {
       const result: any = await this.db.get("_accounts", accountId);
+      if (!result) {
+        throw new K2Error(
+          ServiceError.NOT_FOUND,
+          `Account not found - ${accountId}`,
+          "de9741z8avb4ylxtobhs"
+        );
+      }
       return result as AccountDocument;
     } catch (error) {
       const errorMessage =
@@ -72,11 +80,10 @@ export class Account {
   }
 
   public async delete(accountId: string): Promise<K2DeleteResponse> {
-    // Check permission before performing the delete operation
-    //checkPermission(this.ticket, "account_delete");
-
+    Auth.allow(this.ticket, ["system", "admin"], "9ru9hqhyry8ue30r8e5n");
     try {
-      return await this.db.delete("_accounts", accountId);
+      const account = await this.get(accountId);
+      return await this.db.delete("_accounts", account._uuid);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
@@ -88,146 +95,18 @@ export class Account {
     }
   }
 
-  // Add a user to an account with specific roles
-  public async addUser(
-    accountId: string,
-    userId: string,
-    roleIds: string[]
-  ): Promise<boolean> {
-    //checkPermission(this.ticket, "account_add_user"); // Permission check before action
-    try {
-      const account = await this.get(accountId);
-      if (!account) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Account not found",
-          "s6v5wnch66u5gjqw763x"
-        );
-      }
+  public async findByUserId(userId: string): Promise<AccountDocument> {
+    Auth.allow(this.ticket, ["system", "admin"], "m9cnhmxkft3rkkasfkgf");
+    const query = { _owner: userId };
+    const account = await this.db.findOne("_accounts", query);
 
-      account.userRoles[userId] = roleIds;
-      await this.db.update("_accounts", accountId, account);
-      return true;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+    if (account) {
+      return account as AccountDocument;
+    } else {
       throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to add user to account - ${errorMessage}`,
-        "s6v5wnch66u5gjqw763x"
-      );
-    }
-  }
-
-  // Remove a user from an account
-  public async removeUser(accountId: string, userId: string): Promise<boolean> {
-    //checkPermission(this.ticket, "account_remove_user"); // Permission check before action
-    try {
-      const account = await this.get(accountId);
-      if (!account) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Account not found",
-          "s6v5wnch66u5gjqw763x"
-        );
-      }
-
-      delete account.userRoles[userId];
-      await this.db.update("_accounts", accountId, account);
-      return true;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to remove user from account - ${errorMessage}`,
-        "u01p35abflj0y3891xy0"
-      );
-    }
-  }
-
-  // Add roles to a user within an account
-  public async addRolesToUser(
-    accountId: string,
-    userId: string,
-    roleIds: string[]
-  ): Promise<boolean> {
-    //checkPermission(this.ticket, "account_add_roles"); // Permission check before action
-    try {
-      const account = await this.get(accountId);
-      if (!account) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Account not found",
-          "6b777cbifi3mk112v1bd"
-        );
-      }
-
-      if (!account.userRoles[userId]) {
-        account.userRoles[userId] = [];
-      }
-
-      // Merge unique roles
-      account.userRoles[userId] = Array.from(
-        new Set([...account.userRoles[userId], ...roleIds])
-      );
-      await this.db.update("_accounts", accountId, account);
-      return true;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to add roles to user - ${errorMessage}`,
-        "j73eni1zih763g8z1v35"
-      );
-    }
-  }
-
-  // Remove roles from a user within an account
-  public async removeRolesFromUser(
-    accountId: string,
-    userId: string,
-    roleIdsToRemove: string[]
-  ): Promise<boolean> {
-    //checkPermission(this.ticket, "account_remove_roles"); // Permission check before action
-    try {
-      const account = await this.get(accountId);
-      if (!account) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "Account not found",
-          "q13o413jt534d77t7h65"
-        );
-      }
-
-      if (!account.userRoles[userId]) {
-        throw new K2Error(
-          ServiceError.NOT_FOUND,
-          "User not found in account",
-          "sg3ccooywi3k2p58k4fa"
-        );
-      }
-
-      // Remove specified roles
-      account.userRoles[userId] = account.userRoles[userId].filter(
-        (roleId) => !roleIdsToRemove.includes(roleId)
-      );
-
-      // If user has no roles left, remove them from the account
-      if (account.userRoles[userId].length === 0) {
-        delete account.userRoles[userId];
-      }
-
-      await this.db.update("_accounts", accountId, account);
-      return true;
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      throw new K2Error(
-        ServiceError.SERVICE_ERROR,
-        `Failed to remove roles from user - ${errorMessage}`,
-        "n2ox49b3501alna3r230"
+        ServiceError.NOT_FOUND,
+        `Account not found for user ${userId}}`,
+        "s6v5wnchZZu5gjqw763x"
       );
     }
   }
@@ -238,7 +117,7 @@ export class Account {
     limit?: number,
     start?: number
   ): Promise<AccountDocument[]> {
-    //checkPermission(this.ticket, "account_read"); // Permission check before action
+    Auth.allow(this.ticket, ["system", "admin"], "wsn8xmm48b1bdvr59v4t");
     try {
       const params: any = {
         where: criteria,

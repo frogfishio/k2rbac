@@ -32,7 +32,12 @@ export class Role {
     Auth.allow(this.ticket, ["system", "admin"], "912cup99hogtyuh1ks9k");
 
     try {
-      this.validate(Role.roleSchema, newRole, "1b9424x87ud6sxqry0fd");
+      this.validate(
+        this.ticket,
+        Role.roleSchema,
+        newRole,
+        "1b9424x87ud6sxqry0fd"
+      );
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
 
@@ -76,7 +81,12 @@ export class Role {
 
     try {
       // Validate the role data using Zod before updating
-      this.validate(Role.roleSchema.partial(), data, "zukmd1xscf1zqe0e070n");
+      this.validate(
+        this.ticket,
+        Role.roleSchema.partial(),
+        data,
+        "zukmd1xscf1zqe0e070n"
+      );
 
       // Check if the code is being updated and if so, ensure it's unique
       if (data.code) {
@@ -158,7 +168,25 @@ export class Role {
 
   /*** VALIDATORS ***************************** */
 
-  private validate(schema: z.ZodSchema, data: any, trace: string): void {
+  private validate(
+    ticket: Ticket,
+    schema: z.ZodSchema,
+    data: any,
+    trace: string
+  ): void {
+    // only system can add "admin" permission
+    if (
+      data.permissions &&
+      data.permissions.includes("admin") &&
+      !ticket.permissions.includes("system")
+    ) {
+      throw new K2Error(
+        ServiceError.FORBIDDEN,
+        "Permissions cannot include any of the following reserved values: admin",
+        trace
+      );
+    }
+
     try {
       schema.parse(data);
     } catch (error) {
@@ -197,12 +225,10 @@ export class Role {
       )
       .refine(
         (permissions) =>
-          !permissions.some((permission) =>
-            ["admin", "system"].includes(permission)
-          ),
+          !permissions.some((permission) => ["system"].includes(permission)),
         {
           message:
-            "Permissions cannot include any of the following reserved values: admin, system",
+            "Permissions cannot include any of the following reserved values: system",
         }
       ),
   });

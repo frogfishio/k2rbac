@@ -15,26 +15,6 @@ const debug = debugLib("k2:rbac:role");
 // Define regex for permission format: alphanumeric, lowercase, can contain underscores, but can't start with a number
 const permissionRegex = /^[a-z][a-z0-9_]*$/;
 
-// Define the structure of a Role document using Zod for validation
-const roleSchema = z.object({
-  name: z.string().min(1, { message: "Role name cannot be empty" }),
-  code: z.string().optional(),
-  permissions: z
-    .array(
-      z
-        .string()
-        .min(1, { message: "Permission cannot be empty" })
-        .regex(permissionRegex, {
-          message:
-            "Invalid permission format. Must be lowercase, alphanumeric, and can't start with a number.",
-        })
-    )
-    .nonempty({ message: "Permissions array cannot be empty" })
-    .refine((permissions) => new Set(permissions).size === permissions.length, {
-      message: "Duplicate permissions are not allowed",
-    }),
-});
-
 // Define the structure of a Role document (Zod will validate it)
 export interface RoleDocument extends BaseDocument {
   name: string;
@@ -52,8 +32,7 @@ export class Role {
     Auth.allow(this.ticket, ["system", "admin"], "912cup99hogtyuh1ks9k");
 
     try {
-      // Validate the role document using Zod before saving
-      roleSchema.parse(newRole);
+      this.validate(Role.roleSchema, newRole, "1b9424x87ud6sxqry0fd");
 
       debug(`Creating : ${JSON.stringify(newRole, null, 2)}`);
 
@@ -97,7 +76,7 @@ export class Role {
 
     try {
       // Validate the role data using Zod before updating
-      roleSchema.partial().parse(data); // Use partial schema for partial updates
+      this.validate(Role.roleSchema.partial(), data, "zukmd1xscf1zqe0e070n");
 
       // Check if the code is being updated and if so, ensure it's unique
       if (data.code) {
@@ -176,4 +155,55 @@ export class Role {
       );
     }
   }
+
+  /*** VALIDATORS ***************************** */
+
+  private validate(schema: z.ZodSchema, data: any, trace: string): void {
+    try {
+      schema.parse(data);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new K2Error(
+          ServiceError.VALIDATION_ERROR,
+          `Validation failed: ${error.errors
+            .map((err) => err.message)
+            .join(", ")}`,
+          trace
+        );
+      }
+    }
+  }
+
+  // Define the structure of a Role document using Zod for validation
+  private static roleSchema = z.object({
+    name: z.string().min(1, { message: "Role name cannot be empty" }),
+    code: z.string().optional(),
+    permissions: z
+      .array(
+        z
+          .string()
+          .min(1, { message: "Permission cannot be empty" })
+          .regex(permissionRegex, {
+            message:
+              "Invalid permission format. Must be lowercase, alphanumeric, and can't start with a number.",
+          })
+      )
+      .nonempty({ message: "Permissions array cannot be empty" })
+      .refine(
+        (permissions) => new Set(permissions).size === permissions.length,
+        {
+          message: "Duplicate permissions are not allowed",
+        }
+      )
+      .refine(
+        (permissions) =>
+          !permissions.some((permission) =>
+            ["admin", "system", "member"].includes(permission)
+          ),
+        {
+          message:
+            "Permissions cannot include any of the following reserved values: admin, system, member",
+        }
+      ),
+  });
 }

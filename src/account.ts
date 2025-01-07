@@ -95,9 +95,8 @@ export class Account {
     }
   }
 
-  public async findByUserId(userId: string): Promise<AccountDocument> {
+  public async findOne(query: any): Promise<AccountDocument> {
     Auth.allow(this.ticket, ["system", "admin"], "m9cnhmxkft3rkkasfkgf");
-    const query = { _owner: userId };
     const account = await this.db.findOne("_accounts", query);
 
     if (account) {
@@ -105,7 +104,7 @@ export class Account {
     } else {
       throw new K2Error(
         ServiceError.NOT_FOUND,
-        `Account not found for user ${userId}}`,
+        `Account not found`,
         "s6v5wnchZZu5gjqw763x"
       );
     }

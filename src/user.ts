@@ -1,15 +1,17 @@
 import { BaseDocument, K2DB } from "@frogfish/k2db/db";
 import { K2Error, ServiceError } from "@frogfish/k2error";
 import { Ticket } from "./types";
-import { Secure } from "./secure";
 import { K2CreateResponse, K2DeleteResponse } from "./k2types";
 import debugLib from "debug";
 import { Auth } from "./auth";
+import bcrypt from "bcrypt";
 const debug = debugLib("k2:rbac:user");
 
 export interface UserDocument extends BaseDocument {}
 
 export class User {
+  private static bycriptSaltRounds: number = 10;
+
   constructor(private db: K2DB, private ticket: Ticket) {}
 
   public async createUserByEmailAndPassword(
@@ -19,7 +21,7 @@ export class User {
     Auth.allow(this.ticket, ["system"], "v00rhnpvfq3c0iftypxs");
     await this.validateEmail(email);
     await this.validatePassword(password);
-    const passwordHash = await Secure.bcrypt(password);
+    const passwordHash = await User.bcrypt(password);
 
     try {
       return await this.db.create("_users", this.ticket.account, {
@@ -121,7 +123,7 @@ export class User {
       );
     }
 
-    const isValid = await Secure.bcryptVerify(password, user.password);
+    const isValid = await User.bcryptVerify(password, user.password);
     if (!isValid) {
       throw new K2Error(
         ServiceError.AUTH_ERROR,
@@ -307,5 +309,48 @@ export class User {
     const isExpired = Date.now() - timestamp > otpExpiryTime;
 
     return true;
+  }
+
+  /**
+   * Hashes a plain text password using bcrypt.
+   * @param text - The plain text password to hash.
+   * @returns A promise that resolves to the hashed password.
+   */
+  private static async bcrypt(text: string): Promise<string> {
+    try {
+      const salt = await bcrypt.genSalt(this.bycriptSaltRounds);
+      const hash = await bcrypt.hash(text, salt);
+      return hash;
+    } catch (error) {
+      throw new K2Error(
+        ServiceError.SYSTEM_ERROR,
+        "Error creating a cryptographic hash",
+        "u5074w8o5m6zk52f758j",
+        undefined
+      );
+    }
+  }
+
+  /**
+   * Verifies if the given plain text password matches the hashed password.
+   * @param plainText - The plain text password to verify.
+   * @param hashedPassword - The hashed password stored in the database.
+   * @returns A promise that resolves to true if the passwords match, or false otherwise.
+   */
+  private static async bcryptVerify(
+    plainText: string,
+    hashedText: string
+  ): Promise<boolean> {
+    try {
+      const isMatch = await bcrypt.compare(plainText, hashedText);
+      return isMatch;
+    } catch (error) {
+      throw new K2Error(
+        ServiceError.SYSTEM_ERROR,
+        "Error verifying a cryptographic hash",
+        "v9xbp4vp586fg754j55e",
+        undefined
+      );
+    }
   }
 }

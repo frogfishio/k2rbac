@@ -36,71 +36,16 @@ export interface AuthTokens {
 }
 
 export class Auth {
-  private db: K2DB; // K2Data for database access
   private rolesAPI: Role; // Instance of Role class
-  private accountsAPI: Account; // Instance of Account class
+  private accountAPI: Account; // Instance of Account class
 
   private static roles?: { [key: string]: string[] };
   private static userAccounts: { [key: string]: string } = {};
   private static userAccountsBuffer: Array<string> = [];
 
   constructor(db: K2DB, ticket: Ticket) {
-    this.db = db;
-    this.accountsAPI = new Account(this.db, ticket);
-    this.rolesAPI = new Role(this.db, ticket);
-  }
-
-  private cacheUserAccount(userId: string, accountId: string) {
-    if (Auth.userAccountsBuffer.length >= MAX_USER_ACCOUNTS_BUFFER) {
-      delete Auth.userAccounts[Auth.userAccountsBuffer.shift() as string];
-    }
-    Auth.userAccounts[userId] = accountId;
-    Auth.userAccountsBuffer.push(userId);
-  }
-
-  private async getUserAccount(userId: string): Promise<string> {
-    if (Auth.userAccounts[userId]) {
-      return Auth.userAccounts[userId];
-    }
-
-    const result = await this.db.findOne("_accounts", {
-      _owner: userId,
-    });
-
-    if (!result) {
-      throw new Error("User account not found");
-    }
-
-    this.cacheUserAccount(userId, result._uuid);
-    return result._uuid;
-  }
-
-  private async cacheRoles() {
-    Auth.roles = { system: ["system"], admin: ["admin"], member: ["member"] };
-    const result = await this.rolesAPI.find({});
-    for (const role of result) {
-      Auth.roles[role._uuid] = role.permissions;
-    }
-  }
-
-  // Helper function to get permissions based on role ID
-  private async getRolePermissions(roles: string[]): Promise<string[]> {
-    if (!Auth.roles) {
-      await this.cacheRoles();
-    }
-
-    Auth.roles = Auth.roles || {};
-
-    const map: { [key: string]: boolean } = {};
-    for (const role of roles) {
-      if (Auth.roles[role]) {
-        Auth.roles[role].forEach((permission) => {
-          map[permission] = true;
-        });
-      }
-    }
-
-    return Object.keys(map);
+    this.rolesAPI = new Role(db, ticket);
+    this.accountAPI = new Account(db, ticket);
   }
 
   public async getTicket(token: string): Promise<Ticket> {
@@ -138,7 +83,18 @@ export class Auth {
     return Auth.checksumTicket(ticket);
   }
 
-  /********************************************** */
+  public async getPermissions(token: string): Promise<string[]> {
+    const ticket = await this.getTicket(token);
+
+    // remove "system" permission
+    const permissions = ticket.permissions.filter(
+      (permission) => permission !== "system"
+    );
+
+    return permissions;
+  }
+
+  /*** PUBLIC STATIC HELPERS ******************************************* */
 
   public static allow(
     ticket: Ticket,
@@ -168,7 +124,7 @@ export class Auth {
   }
 
   // Helper function to generate JWT access and refresh tokens
-  static generateTokens(payload: TokenPayload): AuthTokens {
+  public static generateTokens(payload: TokenPayload): AuthTokens {
     const accessToken = jwt.sign(payload, JWT_SECRET, {
       expiresIn: JWT_EXPIRATION,
     });
@@ -182,13 +138,8 @@ export class Auth {
     };
   }
 
-  // Inflate JWT into a Ticket (used for authorization in backend)
-  public validateToken(token: string): TokenPayload {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
-  }
-
   // Ticket checksum logic (same as in your original implementation)
-  static checksumTicket(ticket: Ticket): Ticket {
+  private static checksumTicket(ticket: Ticket): Ticket {
     const data =
       ticket.user +
       ticket.account +
@@ -200,7 +151,7 @@ export class Auth {
     return ticket;
   }
 
-  static getSystemTicket(): Ticket {
+  public static getSystemTicket(): Ticket {
     const expiresAt = Date.now() + ticketExpirationInMillis;
     return Auth.checksumTicket({
       user: "system",
@@ -212,7 +163,7 @@ export class Auth {
   }
 
   // Verify ticket utility
-  static verifyTicket(ticket: Ticket): boolean {
+  public static verifyTicket(ticket: Ticket): boolean {
     if (!ticket || !ticket.checksum) return false;
     const computedHash = crypto
       .createHash("sha256")
@@ -227,15 +178,56 @@ export class Auth {
     return computedHash === ticket.checksum;
   }
 
-  // Get an invalid ticket
-  static getInvalidTicket(): Ticket {
-    return {
-      user: "invalid",
-      account: "invalid",
-      permissions: [],
-      restricted: true,
-      expiresAt: Date.now(),
-      checksum: "",
-    };
+  /*** PRIVATE HELPERS ****************************************** */
+
+  private cacheUserAccount(userId: string, accountId: string) {
+    if (Auth.userAccountsBuffer.length >= MAX_USER_ACCOUNTS_BUFFER) {
+      delete Auth.userAccounts[Auth.userAccountsBuffer.shift() as string];
+    }
+    Auth.userAccounts[userId] = accountId;
+    Auth.userAccountsBuffer.push(userId);
+  }
+
+  private async getUserAccount(userId: string): Promise<string> {
+    if (Auth.userAccounts[userId]) {
+      return Auth.userAccounts[userId];
+    }
+
+    const result = await this.accountAPI.findOne({ _owner: userId });
+
+    if (!result) {
+      throw new Error("User account not found");
+    }
+
+    this.cacheUserAccount(userId, result._uuid);
+    return result._uuid;
+  }
+
+  private async cacheRoles() {
+    Auth.roles = { system: ["system"], admin: ["admin"], member: ["member"] };
+    const result = await this.rolesAPI.find({});
+    for (const role of result) {
+      Auth.roles[role._uuid] = role.permissions;
+    }
+  }
+
+  // Helper function to get permissions based on role ID
+  private async getRolePermissions(roles: string[]): Promise<string[]> {
+    if (!Auth.roles) {
+      await this.cacheRoles();
+    }
+
+    Auth.roles = Auth.roles || {};
+
+    const map: { [key: string]: boolean } = {};
+    for (const role of roles) {
+      if (Auth.roles[role]) {
+        Auth.roles[role].forEach((permission) => {
+          map[permission] = true;
+        });
+      }
+    }
+
+    return Object.keys(map);
   }
 }

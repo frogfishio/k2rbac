@@ -83,17 +83,6 @@ export class Auth {
     return Auth.checksumTicket(ticket);
   }
 
-  public async getPermissions(token: string): Promise<string[]> {
-    const ticket = await this.getTicket(token);
-
-    // remove "system" permission
-    const permissions = ticket.permissions.filter(
-      (permission) => permission !== "system"
-    );
-
-    return permissions;
-  }
-
   /*** PUBLIC STATIC HELPERS ******************************************* */
 
   public static allow(

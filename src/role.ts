@@ -198,11 +198,11 @@ export class Role {
       .refine(
         (permissions) =>
           !permissions.some((permission) =>
-            ["admin", "system", "member"].includes(permission)
+            ["admin", "system"].includes(permission)
           ),
         {
           message:
-            "Permissions cannot include any of the following reserved values: admin, system, member",
+            "Permissions cannot include any of the following reserved values: admin, system",
         }
       ),
   });

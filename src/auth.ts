@@ -51,6 +51,14 @@ export class Auth {
   public async getTicket(token: string): Promise<Ticket> {
     let payload;
 
+    if (!token) {
+      throw new K2Error(
+        ServiceError.INVALID_TOKEN,
+        "Token not provided",
+        "x34evca67aq8gr3hiu1u"
+      );
+    }
+
     try {
       payload = jwt.verify(token, JWT_SECRET) as TokenPayload;
     } catch (error) {
@@ -64,7 +72,7 @@ export class Auth {
 
       throw new K2Error(
         ServiceError.INVALID_TOKEN,
-        `Invalid token: ${error}`,
+        `Invalid token: ${error}: Token: token`,
         "l2u8lwwbiiam7gfdsw5m"
       );
     }
@@ -90,6 +98,14 @@ export class Auth {
     permissions: string[],
     trace?: string
   ): boolean {
+    if (!ticket || !ticket.permissions) {
+      throw new K2Error(
+        ServiceError.FORBIDDEN,
+        "Permission denied",
+        trace || "fdezixsvfrg1xjqal6ar"
+      );
+    }
+
     for (const permission of permissions) {
       if (ticket.permissions.includes(permission)) {
         return true;
@@ -105,6 +121,14 @@ export class Auth {
 
   // Refresh tokens with refreshToken
   public static refreshTokens(refreshToken: string): AuthTokens {
+    if (!refreshToken) {
+      throw new K2Error(
+        ServiceError.INVALID_TOKEN,
+        "Refresh token not provided",
+        "joyseq1qufiem09stojx"
+      );
+    }
+
     const payload = jwt.verify(
       refreshToken,
       JWT_REFRESH_SECRET
@@ -114,6 +138,14 @@ export class Auth {
 
   // Helper function to generate JWT access and refresh tokens
   public static generateTokens(payload: TokenPayload): AuthTokens {
+    if (!payload) {
+      throw new K2Error(
+        ServiceError.INVALID_TOKEN,
+        "Token payload not provided",
+        "efo0gsdgy9smd3e3xhn1"
+      );
+    }
+
     const accessToken = jwt.sign(payload, JWT_SECRET, {
       expiresIn: JWT_EXPIRATION,
     });
@@ -125,19 +157,6 @@ export class Auth {
       accessToken,
       refreshToken,
     };
-  }
-
-  // Ticket checksum logic (same as in your original implementation)
-  private static checksumTicket(ticket: Ticket): Ticket {
-    const data =
-      ticket.user +
-      ticket.account +
-      JSON.stringify(ticket.permissions) +
-      ticket.restricted.toString() +
-      ticket.expiresAt.toString();
-    const hash = crypto.createHash("sha256").update(data).digest("hex");
-    ticket.checksum = hash;
-    return ticket;
   }
 
   public static getSystemTicket(): Ticket {
@@ -168,6 +187,19 @@ export class Auth {
   }
 
   /*** PRIVATE HELPERS ****************************************** */
+
+  // Ticket checksum logic (same as in your original implementation)
+  private static checksumTicket(ticket: Ticket): Ticket {
+    const data =
+      ticket.user +
+      ticket.account +
+      JSON.stringify(ticket.permissions) +
+      ticket.restricted.toString() +
+      ticket.expiresAt.toString();
+    const hash = crypto.createHash("sha256").update(data).digest("hex");
+    ticket.checksum = hash;
+    return ticket;
+  }
 
   private cacheUserAccount(userId: string, accountId: string) {
     if (Auth.userAccountsBuffer.length >= MAX_USER_ACCOUNTS_BUFFER) {

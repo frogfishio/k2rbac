@@ -64,7 +64,7 @@ export class Auth {
     } catch (error) {
       if (error instanceof jwt.TokenExpiredError) {
         throw new K2Error(
-          ServiceError.INVALID_TOKEN,
+          ServiceError.TOKEN_EXPIRED,
           "Token expired",
           "aoapi6lrv4m8rti6c7wq"
         );

@@ -72,7 +72,7 @@ export class Auth {
 
       throw new K2Error(
         ServiceError.INVALID_TOKEN,
-        `Invalid token: ${error}: Token: token`,
+        `Invalid token: ${error}: Token: ${token}`,
         "l2u8lwwbiiam7gfdsw5m"
       );
     }
